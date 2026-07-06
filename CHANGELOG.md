@@ -11,12 +11,22 @@ All notable decisions and milestones for **OptimAero**. Honest numbers only.
   — fast 3D method (AeroSandbox) now, feasible-scale OpenFOAM CFD for the surrogate later.
 - **F1 feasibility PASSED:** AeroSandbox builds a streamlined body + returns physical drag in
   ~7 ms; geometry queryable for containment. Viable fast 3D solver.
-- **Stage A core built + working** (`optimaero/three_d/`): `enclosure.py` parameterizes a
-  streamlined body that **provably contains a packaging box** (hard constraint) and optimizes
-  it for min drag; `cad3d.py` lofts it to STEP/STL. Demo: 2.4 L box → 0.48 m enclosure,
-  fineness 3.7, drag 0.38 N @ 30 m/s (**~12× less than a bluff box**), STEP exported, box
-  enclosed (3.54 L > 2.4 L). Inputs already in real units (m/s, Newtons).
-- Remaining Stage A: a 3D mode in the GUI. Then Stage B (3D CFD-backed surrogate + confidence).
+- **Stage A core built** (`optimaero/three_d/`): `enclosure.py` parameterizes a streamlined
+  body that contains a packaging box and optimizes it for min drag; `cad3d.py` lofts it to
+  STEP/STL. Inputs in real units (m/s, Newtons).
+- **Containment bug found + fixed (adversarial verification).** The first version checked the
+  box's half-width/height against the ellipse *edges* — but the cross-sections are ellipses,
+  so the box *corners* poked through (verifier: worst corner criterion 1.936 ≫ 1, at 100% of
+  stations; the optimizer exploited the gap). Fixed to the ellipse-circumscribes-rectangle
+  criterion `(ly/2/a)²+(lz/2/b)² ≤ 1`. Re-verified: worst corner criterion **0.983 ≤ 1** —
+  genuinely contained. Honest cost: the body is larger, so drag rose 0.38 N → **0.558 N** (the
+  earlier number was from the broken check). Also fixed the drag comparison to apples-to-apples
+  (same frontal area): streamlining ~17× less drag than a blunt enclosure.
+- **Stage A GUI built** (`optimaero/gui3d.py`): plain-Tkinter 3D enclosure tool — enter the
+  component volume (L×W×H) + airspeed → Run → draws the enclosure silhouette with the box
+  inside, shows drag in Newtons + the vs-bluff-box comparison, exports STEP/STL. Constructs +
+  computes + renders verified. Launch: `python -m optimaero.gui3d`. **Stage A complete.**
+- Next: Stage B (feasible-scale 3D CFD → surrogate + confidence + verify-against-CFD).
 
 ### 2026-07-06 — Desktop GUI
 - `optimaero/gui.py`: a plain Tkinter engineering-tool GUI (no web, no frills, per Sky's

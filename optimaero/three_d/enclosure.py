@@ -48,11 +48,19 @@ def build_body(L, w_max, h_max, p, n_sec=25) -> asb.Fuselage:
 
 
 def containment_margin(L, w_max, h_max, p, box: Box, box_x0) -> float:
-    """Min clearance (m) between the body's cross-section and the box over the box's extent.
-    >= 0 means the box is fully contained."""
-    x = np.linspace(box_x0, box_x0 + box.lx, 15)
+    """Signed containment margin over the box's x-extent; >= 0 iff the box is fully inside.
+
+    The cross-sections are ELLIPSES (half-axes a, b), the box is a rectangle. A rectangle
+    corner (ly/2, lz/2) is inside the ellipse iff (ly/2 / a)^2 + (lz/2 / b)^2 <= 1 — matching
+    the half-width/height *edges* (a >= ly/2, b >= lz/2) is NOT sufficient, the corners would
+    poke through the skin. We size the ellipse to circumscribe the rectangle.
+    """
+    x = np.linspace(box_x0, box_x0 + box.lx, 21)
     f = _profile(x / L, p)
-    return float(min((w_max * f - box.ly / 2).min(), (h_max * f - box.lz / 2).min()))
+    a = np.maximum(w_max * f, 1e-9)
+    b = np.maximum(h_max * f, 1e-9)
+    corner = (box.ly / 2 / a) ** 2 + (box.lz / 2 / b) ** 2   # <= 1 means corner inside ellipse
+    return float(1.0 - corner.max())
 
 
 def drag(body: asb.Fuselage, V, rho=RHO_AIR) -> float:
@@ -113,7 +121,9 @@ if __name__ == "__main__":  # demo: enclose a component box, minimize drag at 30
     print(f"optimized enclosure: L={r.L:.3f}m  max {2*r.w_max:.3f}x{2*r.h_max:.3f}m  "
           f"fineness L/D={r.fineness:.2f}  (streamlined optimum ~4-6)")
     print(f"drag @ {V} m/s = {r.drag:.3f} N   contains box: {r.contains}")
-    # context: a bluff box of the same frontal area has far more drag (Cd~1 vs our streamlined)
+    # honest context: a BLUNT enclosure of the SAME frontal area (apples-to-apples on area)
     q = 0.5 * RHO_AIR * V ** 2
-    bluff = q * (box.ly * box.lz) * 1.05  # flat-plate-ish Cd~1.05 on the box frontal area
-    print(f"vs a bare bluff box (~Cd 1.05): {bluff:.3f} N  ->  ~{bluff/r.drag:.1f}x more drag")
+    frontal = np.pi * r.w_max * r.h_max          # the enclosure's own frontal area
+    blunt = q * frontal * 0.9                     # Cd~0.9 for a blunt body of that frontal area
+    print(f"vs a blunt enclosure of the same frontal area (~Cd 0.9): {blunt:.3f} N  ->  "
+          f"streamlining ~{blunt / r.drag:.1f}x less drag")
