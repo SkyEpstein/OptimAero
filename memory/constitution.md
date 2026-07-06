@@ -12,12 +12,13 @@ Last updated: 2026-07-05
 
 ## 1. Mission
 
-Build **OptimAero**: an *uncertainty-aware machine-learning surrogate* that replaces or
-augments CFD for aerodynamic evaluation, and wrap it in an **envelope-constrained
-inverse-design optimizer**. The user supplies (a) a packaging envelope a shape must fit
-inside and (b) a requirements list (top speed, lift, drag, …); OptimAero returns an
-optimized geometry that meets those requirements, importable/exportable through neutral
-CAD formats.
+Build **OptimAero**: a tool where the user **imports a CAD file** of the volume their
+components must occupy and selects a purpose, and OptimAero grows an **optimized aerodynamic
+enclosure** around that volume and **exports it as CAD** (STEP/STL). Workflow: **import CAD →
+aerodynamic optimization → export CAD**. Under the hood is an *uncertainty-aware
+machine-learning surrogate* that replaces/augments CFD, wrapped in an inverse-design optimizer
+with **verify-against-truth** so the reported performance is never the surrogate's unverified
+guess.
 
 The scientific thesis (from Sky's research paper): **a well-calibrated ML surrogate,
 which knows when it is uncertain and defers to real CFD, can stand in for CFD across most

@@ -18,6 +18,7 @@ import numpy as np
 import cadquery as cq
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
+from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 (registers the 3d projection)
 
 from optimaero.three_d.enclosure import Box, optimize_enclosure, _profile, RHO_AIR
 from optimaero.three_d import cad3d
@@ -47,24 +48,27 @@ class EnclosureGUI:
         field(1, "Length", "lx", 0.30, "m")
         field(2, "Width", "ly", 0.10, "m")
         field(3, "Height", "lz", 0.08, "m")
+        ttk.Button(form, text="Import CAD volume…", command=self.on_import).grid(
+            row=4, column=0, columnspan=3, sticky="ew", pady=(4, 0))
         ttk.Label(form, text="Operating condition", font=("", 10, "bold")).grid(
-            row=4, column=0, columnspan=3, sticky="w", pady=(8, 0))
-        field(5, "Airspeed", "V", 30.0, "m/s")
-        ttk.Label(form, text="Purpose").grid(row=6, column=0, sticky="w", pady=(8, 2))
+            row=5, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        field(6, "Airspeed", "V", 30.0, "m/s")
+        ttk.Label(form, text="Purpose").grid(row=7, column=0, sticky="w", pady=(8, 2))
         self.purpose = tk.StringVar(value="Minimum drag")
         ttk.Combobox(form, textvariable=self.purpose, values=["Minimum drag"], width=16,
-                     state="readonly").grid(row=6, column=1, columnspan=2, sticky="w")
+                     state="readonly").grid(row=7, column=1, columnspan=2, sticky="w")
 
         self.run_btn = ttk.Button(form, text="Run", command=self.on_run, state="disabled")
-        self.run_btn.grid(row=7, column=0, columnspan=3, pady=(12, 4), sticky="ew")
+        self.run_btn.grid(row=8, column=0, columnspan=3, pady=(12, 4), sticky="ew")
         self.save_btn = ttk.Button(form, text="Save STEP…", command=self.on_save,
                                    state="disabled")
-        self.save_btn.grid(row=8, column=0, columnspan=3, sticky="ew")
-        self.status = ttk.Label(form, text="Ready. Set inputs and press Run.", foreground="#555")
-        self.status.grid(row=9, column=0, columnspan=3, sticky="w", pady=(10, 0))
+        self.save_btn.grid(row=9, column=0, columnspan=3, sticky="ew")
+        self.status = ttk.Label(form, text="Ready. Set inputs (or Import CAD), then Run.",
+                                foreground="#555")
+        self.status.grid(row=10, column=0, columnspan=3, sticky="w", pady=(10, 0))
 
-        self.fig = Figure(figsize=(5.4, 3.0), dpi=100)
-        self.ax = self.fig.add_subplot(111); self._blank()
+        self.fig = Figure(figsize=(5.6, 4.2), dpi=100)
+        self.ax = self.fig.add_subplot(111, projection="3d"); self._blank()
         self.canvas = FigureCanvasTkAgg(self.fig, master=main)
         self.canvas.get_tk_widget().grid(row=0, column=1, sticky="nsew")
         main.columnconfigure(1, weight=1); main.rowconfigure(0, weight=1)
@@ -77,9 +81,38 @@ class EnclosureGUI:
         self.root.after(100, self._poll)
 
     def _blank(self):
-        self.ax.clear(); self.ax.set_aspect("equal"); self.ax.grid(alpha=0.3)
-        self.ax.set_title("Enclosure silhouette (top view)")
-        self.ax.set_xlabel("x (m)"); self.ax.set_ylabel("half-width (m)")
+        self.ax.clear()
+        self.ax.set_title("3D enclosure (drag to rotate)")
+        self.ax.set_xlabel("x (m)"); self.ax.set_ylabel("y (m)"); self.ax.set_zlabel("z (m)")
+
+    def _draw_box(self, box, x0):
+        """Wireframe of the user's component volume, inside the enclosure."""
+        x1 = x0 + box.lx
+        y0, y1 = -box.ly / 2, box.ly / 2
+        z0, z1 = -box.lz / 2, box.lz / 2
+        c = np.array([[x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0],
+                      [x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]])
+        edges = [(0, 1), (1, 2), (2, 3), (3, 0), (4, 5), (5, 6), (6, 7), (7, 4),
+                 (0, 4), (1, 5), (2, 6), (3, 7)]
+        for i, j in edges:
+            self.ax.plot(*zip(c[i], c[j]), color="#b45309", lw=1.3)
+
+    def on_import(self):
+        path = filedialog.askopenfilename(
+            title="Import a CAD file (the volume your parts occupy)",
+            filetypes=[("CAD", "*.step *.stp *.stl"), ("All", "*.*")])
+        if not path:
+            return
+        try:
+            from optimaero.three_d import cad3d
+            box = cad3d.import_volume(path)
+            self.vars["lx"].set(f"{box.lx:.4g}")
+            self.vars["ly"].set(f"{box.ly:.4g}")
+            self.vars["lz"].set(f"{box.lz:.4g}")
+            self.status.config(
+                text=f"Imported volume {box.lx:.3f}×{box.ly:.3f}×{box.lz:.3f} m — press Run.")
+        except Exception as e:  # noqa
+            messagebox.showerror("Import failed", str(e))
 
     def on_run(self):
         try:
@@ -117,16 +150,24 @@ class EnclosureGUI:
     def _show(self, box, V, r):
         self.result = r
         self.run_btn.config(state="normal")
-        # silhouette: body half-width vs x, with the box outline inside
-        xi = np.linspace(0, 1, 60)
-        w = r.w_max * _profile(xi, r.p)
-        x = r.L * xi
+        # 3D enclosure surface + the component box inside it
         self._blank()
-        self.ax.fill_between(x, w, -w, color="#bfe3c6", label="enclosure")
-        self.ax.plot(x, w, color="#16a34a"); self.ax.plot(x, -w, color="#16a34a")
-        bx = [r.box_x0, r.box_x0 + box.lx]
-        self.ax.add_patch(plt_rect(bx[0], -box.ly / 2, box.lx, box.ly))
-        self.ax.legend(fontsize=8, loc="upper right"); self.canvas.draw()
+        xi = np.linspace(0, 1, 40)
+        f = _profile(xi, r.p)
+        a, b, xg = r.w_max * f, r.h_max * f, r.L * xi
+        th = np.linspace(0, 2 * np.pi, 40)
+        X = np.outer(xg, np.ones_like(th))
+        Y = np.outer(a, np.cos(th))
+        Z = np.outer(b, np.sin(th))
+        self.ax.plot_surface(X, Y, Z, color="#16a34a", alpha=0.35, linewidth=0,
+                             rstride=2, cstride=2)
+        self._draw_box(box, r.box_x0)
+        try:
+            m = 2 * max(r.w_max, r.h_max)
+            self.ax.set_box_aspect((r.L, m, m))
+        except Exception:
+            pass
+        self.canvas.draw()
 
         q = 0.5 * RHO_AIR * V ** 2
         frontal = np.pi * r.w_max * r.h_max          # the enclosure's own frontal area
@@ -158,12 +199,6 @@ class EnclosureGUI:
             messagebox.showinfo("Saved", f"Wrote {path}")
         except Exception as e:  # noqa
             messagebox.showerror("Export failed", str(e))
-
-
-def plt_rect(x, y, w, h):
-    from matplotlib.patches import Rectangle
-    return Rectangle((x, y), w, h, fill=False, edgecolor="#b45309", lw=1.5,
-                     label="your volume")
 
 
 def main():

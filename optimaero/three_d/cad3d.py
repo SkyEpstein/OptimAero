@@ -26,6 +26,22 @@ def enclosure_solid(result) -> Solid:
     return Solid.makeLoft(wires, ruled=True)
 
 
+def import_volume(path: str):
+    """Import a CAD file (STEP) and return the packaging Box = its bounding volume. This is
+    step 1 of the workflow: CAD-in → aero → CAD-out."""
+    from optimaero.three_d.enclosure import Box
+    low = path.lower()
+    if low.endswith((".step", ".stp")):
+        shape = cq.importers.importStep(path).val()
+    elif low.endswith(".stl"):
+        shape = cq.importers.importShape("STL", path)
+        shape = shape.val() if hasattr(shape, "val") else shape
+    else:
+        raise ValueError("import a .step/.stp (or .stl) CAD file")
+    bb = shape.BoundingBox()
+    return Box(lx=float(bb.xlen), ly=float(bb.ylen), lz=float(bb.zlen))
+
+
 def export_enclosure(result, out_dir: str, name: str = "enclosure3d") -> dict:
     os.makedirs(out_dir, exist_ok=True)
     solid = enclosure_solid(result)

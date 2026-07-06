@@ -4,6 +4,21 @@ All notable decisions and milestones for **OptimAero**. Honest numbers only.
 
 ## [Unreleased]
 
+### 2026-07-06 — 3D viewer + reframed docs to the real product
+- **3D viewer in the GUI** (`gui3d.py`): the flat silhouette is now a rotatable 3D view — the
+  streamlined enclosure surface with the component box wireframe inside it (matplotlib 3D).
+- **Docs reframed to the current product** (post-2D-pivot): `README.md` rewritten (import CAD
+  → aero → export CAD; 2D is the validated foundation), constitution §1 mission updated, and
+  the **GitHub repo description + topics** updated on `SkyEpstein/OptimAero`.
+
+### 2026-07-06 — CAD-in → aero → CAD-out workflow complete (Sky's vision)
+- `cad3d.import_volume(path)`: import a STEP/STL and enclose its bounding volume — the missing
+  "import a CAD file" step. GUI gains an **Import CAD volume…** button that fills L/W/H.
+- `scripts/workflow_demo.py` proves the full loop: user_part.step in → optimized enclosure
+  (drag 0.558 N, contains part ✓) → final_enclosure.step out (6.59 L wrapping the 2.40 L part).
+- The tool is now the workflow Sky described: **import CAD → aero → output CAD**, on the fast
+  method. CFD accuracy is the parallel Stage B (Docker installed; awaiting launch).
+
 ### 2026-07-06 — 3D pivot: aerodynamic-enclosure optimization (Stage A core)
 - **Scope revised** (constitution §2): the true product is 3D — user volume in → optimized
   aerodynamic enclosure out → CAD. 2D work is the validated methodology foundation. New spec:
