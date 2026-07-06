@@ -25,9 +25,20 @@ of the design loop** — delivering millisecond evaluations without sacrificing 
 
 ## 2. Scope
 
-**Foundation (v1):** 2D airfoils/wings. Section aerodynamics `C_l, C_d, C_m` as functions
-of angle of attack `α`, Reynolds number `Re`, and Mach `M`. Low-speed / incompressible-to-
-low-subsonic regime first; `Re ≈ 1e4–1e6` (the small-UAV / drone-propeller regime).
+**Core target (revised 2026-07-06 — the true product vision).** The user supplies a **3D
+volume** their internal components must fit inside and selects a **purpose**; OptimAero grows
+an **optimized aerodynamic enclosure** around that volume (min drag / purpose objective,
+subject to fully containing the volume) and exports it as CAD. This is *aerodynamic-enclosure
+optimization in 3D* — the literal "a shape that must fit in the final product." Delivered in
+two stages: **Stage A** a working pipeline on a fast 3D method (AeroSandbox panel/component
+buildup); **Stage B** a learned surrogate + confidence trained on feasible-scale 3D CFD
+(OpenFOAM), with verify-against-CFD. Data strategy mirrors the proven 2D pattern (fast
+backbone + higher-fidelity anchor).
+
+**Validated foundation (the 2D work, complete).** 2D airfoils/wings — section aero
+`C_l, C_d, C_m(α, Re, M)`, low-speed, `Re ≈ 1e4–1e6`. This proved the *methodology* that now
+transfers to 3D: leakage-controlled bake-off, the confidence model, inverse design with
+verify-against-truth, CAD I/O, the GUI. It is a reusable base, not the final deliverable.
 
 **Application (v1):** drones / UAVs / propellers — which are physically *composed of
 airfoil sections*, so the section surrogate is the reusable core.
@@ -157,8 +168,8 @@ near-duplicate handling) remains the Phase 1 leakage-map detail.
   MIT-facing research identity that also hosts the `Machine-learning-to-separate-f-elements`
   repos. OptimAero is a showcase research project and belongs there. Confirm the active
   `gh` account is `SkyEpstein` before any push.
-- **Repo creation held off** until the first real milestone (constitution + a working data
-  pipeline) is in hand — no empty repo pushed early. Build locally until then.
+- **Published** at https://github.com/SkyEpstein/OptimAero (public, 2026-07-06) once the
+  first real milestone was in hand (full working pipeline + verified results + writeup).
 - Commit messages confirmed with Sky before pushing.
 - `CHANGELOG.md` updated as part of every commit, with honest numbers.
 - Constitution amendments recorded in `CHANGELOG.md`.

@@ -4,12 +4,36 @@ All notable decisions and milestones for **OptimAero**. Honest numbers only.
 
 ## [Unreleased]
 
+### 2026-07-06 — 3D pivot: aerodynamic-enclosure optimization (Stage A core)
+- **Scope revised** (constitution §2): the true product is 3D — user volume in → optimized
+  aerodynamic enclosure out → CAD. 2D work is the validated methodology foundation. New spec:
+  `specs/2026-07-06-3d-enclosure/`. Data approach (Claude's pick, Sky confirmed): hybrid/staged
+  — fast 3D method (AeroSandbox) now, feasible-scale OpenFOAM CFD for the surrogate later.
+- **F1 feasibility PASSED:** AeroSandbox builds a streamlined body + returns physical drag in
+  ~7 ms; geometry queryable for containment. Viable fast 3D solver.
+- **Stage A core built + working** (`optimaero/three_d/`): `enclosure.py` parameterizes a
+  streamlined body that **provably contains a packaging box** (hard constraint) and optimizes
+  it for min drag; `cad3d.py` lofts it to STEP/STL. Demo: 2.4 L box → 0.48 m enclosure,
+  fineness 3.7, drag 0.38 N @ 30 m/s (**~12× less than a bluff box**), STEP exported, box
+  enclosed (3.54 L > 2.4 L). Inputs already in real units (m/s, Newtons).
+- Remaining Stage A: a 3D mode in the GUI. Then Stage B (3D CFD-backed surrogate + confidence).
+
+### 2026-07-06 — Desktop GUI
+- `optimaero/gui.py`: a plain Tkinter engineering-tool GUI (no web, no frills, per Sky's
+  "very basic, not AI-y" ask). Inputs (envelope t/c, Reynolds, objective, target Cl) → Run →
+  searches CST space with the trained surrogate, XFOIL-verifies the optimum, draws the airfoil
+  (vs baseline), shows the honest numbers, and exports STEP/STL. Optimization runs off-thread
+  so the window stays responsive. Deployed surrogate: single MLP + confidence + verification
+  (Sky's choice). Constructs + renders without error. Launch: `python -m optimaero.gui`.
+
 ### 2026-07-06 — MIT writeup + figures
 - `docs/METHODS_AND_RESULTS.md`: full honest methods-and-results (motivation, data, leakage
   control, nested bake-off, confidence model, physics + inverse design, the trust-verification
   finding, limitations, reproducibility). Figures in `docs/figures/`: predictor bake-off R²,
   selective-prediction curve, and the surrogate-vs-XFOIL verification (441→129).
-- Preparing first commit to **`SkyEpstein/OptimAero`** (past the constitution's milestone bar).
+- **Published: https://github.com/SkyEpstein/OptimAero** (public). First commit `4d43bba`
+  under `SkyEpstein <epsteins@bxscience.edu>`: 48 files (code, specs, writeup + figures, data
+  card, result JSONs). Datasets, venv, XFOIL binary, and trained model excluded (regenerable).
 
 ### 2026-07-06 — End-to-end on the trained model + off-manifold finding
 - **`TrainedSurrogate`** (`optimaero/bakeoff/deploy.py`): winning MLP + LightGBM confidence
