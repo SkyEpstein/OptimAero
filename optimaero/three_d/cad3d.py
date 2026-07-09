@@ -26,20 +26,55 @@ def enclosure_solid(result) -> Solid:
     return Solid.makeLoft(wires, ruled=True)
 
 
-def import_volume(path: str):
-    """Import a CAD file (STEP) and return the packaging Box = its bounding volume. This is
-    step 1 of the workflow: CAD-in → aero → CAD-out."""
+UNIT_SCALE = {"mm": 0.001, "cm": 0.01, "m": 1.0, "in": 0.0254}  # → metres
+
+
+def import_volume(path: str, units: str = "mm"):
+    """Import any common CAD/mesh file → the payload Box, converted to METRES.
+
+    `units` = the units the CAD file is modeled in. **Default "mm"** — the near-universal
+    convention for CAD parts and STL exports — so a 300 mm part becomes 0.30 m, not 300 m.
+    B-rep (STEP/STP/IGES/IGS/BREP) via OpenCASCADE; meshes (STL/OBJ/PLY/OFF/GLB/3MF) via
+    trimesh, using the ORIENTED (minimal) bounding box so a rotated part isn't over-reported.
+    """
     from optimaero.three_d.enclosure import Box
-    low = path.lower()
-    if low.endswith((".step", ".stp")):
-        shape = cq.importers.importStep(path).val()
-    elif low.endswith(".stl"):
-        shape = cq.importers.importShape("STL", path)
-        shape = shape.val() if hasattr(shape, "val") else shape
+    scale = UNIT_SCALE.get(units, 0.001)
+    ext = os.path.splitext(path)[1].lower().lstrip(".")
+
+    if ext in ("step", "stp", "iges", "igs", "brep"):
+        try:
+            if ext in ("step", "stp"):
+                shp = cq.importers.importStep(path).val()
+            elif ext == "brep":
+                shp = cq.importers.importBrep(path).val()
+            else:  # iges/igs — CadQuery has no IGES reader; read via OpenCASCADE directly
+                from OCP.IGESControl import IGESControl_Reader
+                from OCP.IFSelect import IFSelect_RetDone
+                reader = IGESControl_Reader()
+                if reader.ReadFile(path) != IFSelect_RetDone:
+                    raise RuntimeError("IGES read failed")
+                reader.TransferRoots()
+                shp = cq.Shape(reader.OneShape())
+            bb = shp.BoundingBox()
+            dims = (bb.xlen, bb.ylen, bb.zlen)
+        except Exception as e:
+            raise ValueError(f"could not read {ext.upper()} CAD file: {e}")
     else:
-        raise ValueError("import a .step/.stp (or .stl) CAD file")
-    bb = shape.BoundingBox()
-    return Box(lx=float(bb.xlen), ly=float(bb.ylen), lz=float(bb.zlen))
+        try:
+            import trimesh
+            mesh = trimesh.load(path, force="mesh")
+            if mesh is None or not hasattr(mesh, "vertices") or len(mesh.vertices) < 3:
+                raise ValueError("file has no readable mesh geometry")
+            # axis-aligned bbox — exact for parts modeled axis-aligned (the CAD norm); a
+            # rotated part over-reports slightly, which still safely contains it.
+            dims = tuple(np.asarray(mesh.bounding_box.extents, dtype=float))
+        except Exception as e:
+            raise ValueError(f"could not read '.{ext}' file (empty or unsupported?): {e}")
+
+    dims = tuple(float(d) * scale for d in dims)
+    if len(dims) != 3 or not all(np.isfinite(d) and d > 0 for d in dims):
+        raise ValueError(f"CAD file has a degenerate/zero bounding volume: {dims}")
+    return Box(lx=dims[0], ly=dims[1], lz=dims[2])
 
 
 def export_enclosure(result, out_dir: str, name: str = "enclosure3d") -> dict:

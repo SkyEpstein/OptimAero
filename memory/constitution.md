@@ -6,7 +6,7 @@ change checks compliance with it. Amendments require an explicit note in `CHANGE
 Status: **DRAFT — awaiting Sky's confirmation.** All sections drafted; §4 (confidence
 model) resolved from the verified `f-elements-2` formulation. No open `[NEEDS CLARIFICATION]`.
 
-Last updated: 2026-07-05
+Last updated: 2026-07-07 (added §5.8 — additive-only / preserve-interior-volume, per Sky)
 
 ---
 
@@ -147,6 +147,14 @@ near-duplicate handling) remains the Phase 1 leakage-map detail.
    chosen by recorded, fair comparison on held-out data — never arbitrarily.
 7. **SDD governs every change.** specify → clarify → plan → tasks → analyze → implement →
    verify → record, scaled to the size of the change.
+8. **Additive only — always preserve the interior volume (set by Sky, 2026-07-07).** OptimAero
+   NEVER shrinks, deforms, or moves the user's imported geometry. It only **adds aerodynamic
+   features around the current volume**, so the final volume is **always ≥ the original** and the
+   original shape is **fully preserved (contained) inside** the result. Enforced by an explicit
+   check: every original vertex lies inside the output and `volume(output) ≥ volume(input)`.
+   Functional **keep-clear** regions (e.g. rotor disks) are respected — added material is
+   ducted/cut around them, never blocking them. Any "shrink-to-keep-out" or "deform-in-place"
+   strategy violates this rule and is disallowed.
 
 ## 6. Tech stack (initial; individual choices confirmed by bake-off where noted)
 

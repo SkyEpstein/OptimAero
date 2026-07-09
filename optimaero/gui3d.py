@@ -100,7 +100,9 @@ class EnclosureGUI:
     def on_import(self):
         path = filedialog.askopenfilename(
             title="Import a CAD file (the volume your parts occupy)",
-            filetypes=[("CAD", "*.step *.stp *.stl"), ("All", "*.*")])
+            filetypes=[("CAD / mesh",
+                        "*.step *.stp *.iges *.igs *.brep *.stl *.obj *.ply *.off *.glb *.3mf"),
+                       ("All files", "*.*")])
         if not path:
             return
         try:

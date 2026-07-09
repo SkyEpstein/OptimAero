@@ -4,6 +4,270 @@ All notable decisions and milestones for **OptimAero**. Honest numbers only.
 
 ## [Unreleased]
 
+### 2026-07-08 — Surrogate-driven drone optimizer (Sky's vision: ML searches, CFD only verifies)
+- **Goal (Sky):** the optimizer should score thousands of forms with an ML surrogate and CFD-verify only
+  the top few — "more tuning than CFD allows." Verified blocker: the envelope Cd/Cl surrogate CANNOT score
+  drones (4 features are envelope-generator knobs; drones are out-of-distribution). So: build a drone-form
+  surrogate. Chosen path (Sky): full drone-form CFD sweep first, then train, then wire.
+- **Built + unit-tested (mocked):** `drone/dataset.py` (resumable/atomic drone-form CFD generator +
+  geometric/area-rule features), `drone/surrogate.py` (bake-off recipe + confidence + extrapolation split),
+  `drone/optimize.py::optimize_drone_surrogate` (score n_search=8000 forms in ms → diverse top-K →
+  CFD-verify only those; ~6 CFD vs 12 blind), GUI auto-mode uses the surrogate when trained else blind CFD.
+  Shared CFD-verify/selection refactor preserves the never-None / never-worse / additive-only guarantees.
+- **Adversarial review (32 agents, 8 confirmed defects, all resolved).** HIGH: train/serve condition skew —
+  trained at one speed (V=134) but the GUI default is 25 m/s, and V/Mach/AoA were constant features the
+  surrogate silently ignored. Fix: **target the speed-invariant drag area `cda = drag/q = Cd·A_front` with
+  only the 3 varying knobs** — ranking transfers across speed, and the answer is CFD-verified at the real
+  condition. MEDIUM: dropped the 5 constant "features" (honest 3-knob model). LOW: graceful blind fallback
+  on surrogate load/predict failure; NaN-safe ranking; `_clean` excludes §5.8-violating forms from training;
+  R² labelled "interpolation within one drone."
+- **VALIDATED end-to-end on real CFD.** 300-form sweep (all converged, all additive-valid, drag 31.4–137.7 N).
+  Surrogate on 300 rows: **knobs-only R² = 0.971** (drag-area target), confidence RMSE 0.00031→0.00019 @25%;
+  extrapolation RMSE (0.00030) ≈ interpolation RMSE (0.00031) so it predicts accurately near the edges too.
+  Live run on the benchmark drone: **137.7 → 31.4 N (−77%) in 200 s**, searching **8,000 forms in ms** and
+  CFD-verifying only **6 + bare = 7**. The surrogate predicted the winner at 31.4 N; **CFD-actual 31.4 N
+  (0.0 N error)**, and the 31.4 N equals the best of all 300 swept forms — i.e. it found the global optimum
+  with 7 CFD runs. Beats the blind 12-CFD search (57%/59.9 N) on both drag AND speed. Sky's vision realized:
+  ML searches, CFD only verifies. GUI auto-mode uses the surrogate (blind fallback if the artifact is absent).
+
+### 2026-07-07 — AUTONOMOUS drone optimizer (the program does it itself, one click)
+- **The program now optimizes the imported drone on its own — no hand-picked params.**
+  `optimaero/drone/optimize.py::optimize_drone` Latin-hypercube samples the additive-treatment space
+  (boat-tail length, arm-airfoil chord, thickness), CFD-evaluates every candidate in parallel
+  (refine 4 + boundary layers, resource-capped), and returns the lowest-drag design with a
+  never-worse-than-bare fallback. Directly answers Sky's "the program should do it itself."
+- **Sky's tail insight was right — and it's the biggest single win.** CFD: bare drone 137.7 N →
+  **boat-tail alone 80.8 N (−36%)**, **airfoil arms + tail 72.4 N (−42%)**. The autonomous search
+  then beat both: **137.7 → 59.9 N (−57%)**, program-chosen tail=2.06·L, chord=2.29·rmax, thick=0.50.
+  Before/after measured at identical fidelity in the same run — apples-to-apples, additive-only, props
+  clear, original preserved. This is the thesis working: import drone → program adds tail + airfoils
+  itself → 57% less drag.
+- **Wired into the GUI as the default strategy "Optimize drone (automatic, CFD)".** One click, zero
+  aero params (the program decides); Docker check; live per-candidate CFD progress bar; reports the
+  real CFD drag/lift/L/D/Cl/Cd, not the fast estimate. `DroneResult` now carries `metrics_before/after`.
+- **Hardened after a 4-lens adversarial-review workflow (44 agents, 16 confirmed defects, all fixed).**
+  A *critical* bug returned `optimized=None` and crashed the GUI whenever the bare-drone CFD failed
+  (the `min()` baseline forced `best>=d0`, overwriting the real winner with a nulled bare mesh). The
+  additive-only guarantee was **asserted but never checked**; now `additive_ok()` verifies every
+  candidate (watertight + volume ≥ input + boolean intersection recovers ≥99.5% of the original) and a
+  design that shrinks/doesn't contain the drone is **disqualified even if its drag is lower** — §5.8 is
+  now enforced in code, not just claimed. Also: build the mesh outside the CFD try (a CFD failure never
+  discards a real mesh); honest baseline (`drag_before=nan`) when bare CFD fails; `add_tail` now takes
+  `body_source` so body detection uses the original drone (matches `seg`) while the cone unions onto the
+  airfoiled mesh; AoA plumbed through CFD and labeled honestly; 0° lift/L·D flagged as mesh noise;
+  Docker check moved off the Tk main thread; non-multirotor guard; atomic progress counter. Verified
+  by a mocked-CFD unit test (all four fallback paths), real-geometry `additive_ok` tests, and a post-fix
+  end-to-end CFD run.
+
+### 2026-07-07 — Drone benchmarked with REAL CFD; fairing works on fairing-friendly layouts
+- **Fast estimate was 3.4× wrong on the drone** (422 N vs CFD 125.5 N). Switched the drone to
+  CFD-in-the-loop. Every additive fairing on the X-quad INCREASES drag per CFD (ducted 177 N, faired
+  487 N, "more material" 458 N) because the tip motors make fairings grow the frontal footprint
+  (190→240 mm). A 6-config CFD optimization confirmed: only a fuselage boat-tail helps (−1.6%); the
+  bare X-quad is near-optimal for forward cruise. Honest, CFD-proven — it's the geometry, not the tool.
+- **Tool premise CFD-verified on suitable shapes:** bluff box 61.4 N → streamlined envelope 15.1 N
+  (**−75%**). And an **inline-motor drone** (motors fore/aft along the fuselage, like Sky's reference)
+  15.4 N → faired 10.9 N (**−29%**), props clear, parts preserved. So fairing reduces drag when the
+  layout lets fairings extend along the flow, not sideways. `optimaero/drone/fairing.py` (per-component
+  fuselage/nacelle/strut fairing, parametrized). Design rule: high-speed baselines want inline motors.
+- **CFD mesher bug fixed (`foam.py`):** flat/thin bodies (min/max extent ≈ 0.19) weren't meshed
+  (snappy added 0 cells, "no body patch", 0 drag). Background domain + cells are now sized
+  per-direction so thin bodies are resolved. Also `layers` (boundary layers) + tighter solver.
+- **Airfoil arms — works on the X-quad (Sky's ask, `optimaero/drone/airfoil.py`):** give each round
+  arm an AIRFOIL cross-section (chord along the flow, thin across) so it streamlines WITHOUT growing
+  the frontal footprint (held at 190 mm — the key fix). A 12-config CFD chord/thickness sweep:
+  best = long+thin (chord 2.4× arm-length, 0.6× thickness) → **125.5 N → 101.3 N, −19% CFD-proven**;
+  fat airfoils hurt. Look caveat: at +z travel the chord runs vertical, so aggressive airfoils are
+  tall fins (−19%); subtle chord ≈ −4%. Wired into the GUI as the "Airfoil arms (multirotor)"
+  strategy (drastic slider = chord). Prop-size input added (segment/duct). This is the first
+  substantial, honest, CFD-proven optimization of Sky's actual drone.
+
+### 2026-07-07 — Ceiling probe + mesh-noise fix (multi-fidelity) + Cl track + GUI
+- **Ceiling was overstated (Sky pushed back, rightly).** A 5-agent probe + my recompute: the "0.81
+  ceiling" was a spurious saturating-fit; the curve is still climbing (log-linear). Honest current Cd
+  is **~0.81 shuffled / ~0.76 new-geometry (GroupKFold)** — I'd been quoting the interpolation number.
+  Going past 15k *does* help (mid-0.80s by ~25k), but the real limits past that are **features** (the
+  low-Cd corner where 83% of error lives) and **±10% mesh label-noise**.
+- **Mesh-convergence study:** without boundary layers Cd swings ±10% even at refine 5; **adding
+  layers** (`layers` param in `foam.py`) + tighter solver (1200 iters, 1e-5 residuals) stabilizes it.
+  Coarse refine-3 labels are biased and geometry-dependent. Full re-run infeasible (55–172 s/case).
+- **Multi-fidelity anchor (Sky's 2D methodology):** `generate_anchor` runs each geometry at coarse
+  (refine 3) AND fine (refine 4 + 3 layers) so we learn the coarse→fine correction to de-bias all
+  14k. 2,000-case anchor launched (3 workers). Bias verified geometry-dependent (both directions).
+- **Richer shape features (#3):** area-rule descriptors (`prismatic, x_maxarea, area_smooth,
+  base_area, nose_area`) added to distinguish the aliased low-Cd shapes. In `bakeoff.FEATURES`.
+- **Cl-tailored (camber) track launched** in parallel (2 workers, `mode="cl"`).
+- **Cd sweep right-sized + paused at 13,962 rows** (kept as baseline); machine split across anchor+Cl.
+- **GUI (`gui_shapeopt.py`) + launch:** double-clickable `OptimAero.command` launcher; an
+  indeterminate **progress bar** during optimize; and the **Ducted-drone (multirotor) strategy**
+  wired in (auto-segment → ducted shell) with an `Arms` field.
+
+### 2026-07-07 — Deployable confidence model saved (`optimaero/cfd/deploy.py`)
+- **`EnvelopeSurrogate` (new):** the confidence model is now a SAVED artifact
+  (`results/envelope_surrogate.joblib`), not just a bake-off metric (gap Sky flagged). Contains the
+  winning predictor per target (Cd→ExtraTrees, Cl→LGBM) + a LightGBM confidence model on OOF
+  residuals + a 50%-coverage trust gate. `predict(features)` → {Cd, Cl, Cd_err, Cl_err, Cd_trusted,
+  Cl_trusted}; untrusted/OOD → CFD fallback. Verified: reloads and predicts (sample Cd 1.045 vs
+  actual 1.045). Trained @8,094 rows: Cd OOF R²=0.798 (gated RMSE 0.134→0.046 @50%), Cl R²=0.388
+  (0.052→0.018 @50%). Refresh via `train_and_save` as the sweep grows. (Artifact ~270 MB — ExtraTrees
+  heavy; can be slimmed.)
+
+### 2026-07-07 — Verified plateau analysis (6-agent workflow) + data cleanup
+- **6-agent status workflow (5 analysts + adversarial verifier) @ ~6.5k rows.** Verifier CORRECTED
+  the analysts on both decision-critical claims: honest full-data **Cd R²=0.79** (ExtraTrees, not the
+  LGBM-only 0.72 the analysts reported), GroupKFold-by-geometry-cluster 0.75 (0.044 optimism gap =
+  normal, **no leakage** — 0 dup/near-dup). Cd curve is **decelerating/near-plateau** (saturates
+  ~0.81; doubling to 12k buys only ~+0.01) — the "still climbing" claim was an artifact of forcing LGBM.
+- **Per-regime hypothesis REFUTED at scale.** With ~1,860 rows/regime, per-regime models LOSE to a
+  single global model for both Cd (−0.08 R²) and Cl — splitting starves each model; Re/Mach as
+  features already capture regime. Decision: keep one global model per target.
+- **Confidence model strong at scale** — selective prediction cuts RMSE ~3× at 50% coverage
+  (Cd 0.137→0.044, Cl 0.055→0.019), Spearman ≈0.55 both.
+- **Cl ceiling ~0.35 is a FEATURES problem, not data** — confirms the camber/Cl-tailored track is the
+  right lever (not more symmetric-body rows).
+- **Data cleanup:** capped sampler nose/tail (fineness was reaching 21 → Cd≈0 under-resolved needles,
+  ~9% of the set); bake-off now filters `fineness ≥ 12` and treats `camber` robustly (fillna 0;
+  used as a feature only when it varies). **Sky's call: push the Cd sweep to ~12–15k** (toward the
+  ~0.81 ceiling) before launching the Cl-tailored track.
+
+### 2026-07-07 — Tailored per-target data: camber + Cl-tailored track (Sky's plan)
+- **Learning curve (Cd sweep, enriched):** Cd R² 0.52→0.73 and Cl 0.17→0.31 as data grows
+  500→2000 — both still climbing, so the push toward 20k is justified (right-sized by the curve).
+- **Separate data tailored per target (Sky's idea):** the bake-off already trains separate Cd/Cl
+  models; now the DATA is tailored too. Cd keeps the diverse-symmetric sweep (it's the strong one).
+  For Cl: added a **`camber` parameter** to `build_envelope` (bends the mean line up mid-body → the
+  body generates lift; watertight; also a lifting-body mode for max-lift/max-L/D). `dataset.generate`
+  gains `mode="cl"`: cambered + asymmetric shapes, AoA 0–15°, **finer CFD mesh (refine 4)**.
+- **Camber validated in CFD:** symmetric body |Cl|≈0.02; cambered body |Cl|≈0.07–0.09 and nonzero
+  even at 0° AoA — **3–4× stronger, learnable lift signal**. Bake-off uses `camber` only when the
+  data carries it, so the running Cd sweep/data stay consistent. Cl track launches after Cd plateaus.
+
+### 2026-07-07 — Constitution amendment §5.8 (additive-only) + ducted drone shell
+- **Constitution §5.8 (new non-negotiable, per Sky):** OptimAero is **additive-only** — it never
+  shrinks/deforms/moves the imported geometry; it only adds aerodynamic features AROUND it, so
+  `volume(output) ≥ volume(input)` and the original is fully contained inside. Keep-clear regions
+  (rotor disks) are ducted around, never blocked. "Shrink-to-keep-out" and "deform-in-place"
+  strategies are disallowed. `memory/constitution.md` updated.
+- **`optimaero/drone/ducted.py` (new):** ducted aerodynamic shell for a multirotor — grow a
+  streamlined shell around the drone (contains it, volume ≥ original), cut rotor ducts through it
+  (manifold3d boolean), and union the drone back so it's fully preserved. Length-capped
+  (`max_len_ratio`) so it's a practical ogive, not a drag-minimizing needle. Verified on the drone:
+  volume ≥ original, watertight, drone preserved inside, 4 open rotor ducts. Honest: a wide drone
+  needs a longer shell for real drag cut (2.5×≈1%, 3×≈17% on the fast estimate — CFD will settle it).
+
+### 2026-07-07 — Bake-off proof + enriched geometry + parallel scale-up
+- **Bake-off proof (200 rows):** pipeline works end-to-end. Cd R²=0.84 (ExtraTrees), confidence
+  model improves RMSE 0.063→0.052 @50% coverage. Cl R²≈0 (half the samples at 0° AoA → no lift
+  signal); per-regime lost to global at this scale (too few rows/regime). All three motivate scale-up.
+- **Enrichment (Sky's call — richer shape space):** `sample_base` spans 6 diverse geometries
+  (box/ellipsoid/cylinder/cone/capsule/asymmetric); AoA sampled 0–10°; +3 features (vol, wet/front,
+  planform/front asymmetry).
+- **Verifier catch + correction (2026-07-07):** my first enrichment added a random 3D rotation to
+  every base — which the harness-verifier proved makes the **lift direction arbitrary → Cl
+  unlearnable** (my "more AoA fixes Cl" diagnosis was wrong). Removed the rotation; a consistent
+  frame (flow +x, up +z) gives lift a consistent sign. Verifier also **confirmed Cd R²=0.84 is
+  honest** (200 unique shapes, GroupKFold-by-shape = 0.835, no leakage) — so the scale-up is
+  justified. Honest limits: lift is inherently small for streamlined bodies and coarse-mesh CFD
+  noise (±30–50%) dominates it, so **Cd is the solid target; Cl will be modest** (may need a finer
+  mesh). The old 200-row parquet predates the enriched features/AoA — superseded by the new sweep.
+- **`optimaero/cfd/sweep.py` (new):** parallel driver — N capped workers (`OA_CFD_MEM`/`OA_CFD_CPUS`
+  per worker), own case dir/seed/shard, checkpointed/resumable, `status()`/`merge()`. Sized to fit
+  the host (5×3 cpu / 4 GB). Sky's decision: right-size at 20–50k first, learning-curve-gated before
+  100k+. First enriched sweep launched toward 20k (~0.7 rows/s, ~7–9 h; host >28 GB free).
+
+### 2026-07-07 — CFD labeler + training-data sweep + drone structure awareness
+- **`optimaero/cfd/foam.py` (new):** capped OpenFOAM (v2512) external-flow labeler — blockMesh +
+  snappyHexMesh + simpleFoam (k-omega SST) around a body, HARD-capped (12 GB / 6 cores) with a
+  psutil host-memory watchdog (min 3 GB free). Returns drag/lift [N] + Cd/Cl. Debugged: OpenFOAM
+  dict formatting (blockMesh/snappy/controlDict needed canonical multi-line), a missing triSurface
+  dir, psutil install (vm_stat "free" is misleading on macOS), and a `locationInMesh`-on-boundary
+  bug. Verified: streamlined envelope Cd 0.173, converged, 12,456 cells, ~3 s, host >27 GB free.
+- **`optimaero/cfd/dataset.py` (new):** CFD-labeled dataset over the envelope parameter space
+  (features = silhouette + params + V/Re/Mach/alpha; targets = CFD drag/lift). Spans **speed
+  regimes** (`speed_regime` low/mid/high) per Sky — the bake-off will train per-regime models and
+  compare vs a single global model. Checkpointed/resumable. First sweep: 200 samples running.
+- **Drone structure awareness (`optimaero/drone/`):** the enclosing envelope wrapped a quadcopter
+  into a non-functional blob. New `segment.py` splits a multirotor into body / arms / motor pods +
+  rotor keep-clear disks (face-level, since the low-poly arms are vertex-free spokes bridging a
+  radial gap). `streamline.py` reshapes pods/body in place (boat-tail) with a component-buildup
+  drag model, keeping rotor zones clear (verified 0 vertices intrude). HONEST finding: this drone's
+  drag is arms/pods broadside to +z travel; in-place fairing needs subdivision + CFD to quantify.
+
+### 2026-07-06 — Enclosing envelope + feature targeting + 300 mph drone benchmark
+- **`optimaero/shapeopt/envelope.py` (new):** per Sky's MCQ, grows a streamlined outer skin that
+  FULLY CONTAINS the imported shape (containment guaranteed analytically + verified by
+  signed-distance) and adapts its own width/height silhouette into a teardrop — streamlined nose
+  upstream, tapering boat-tail downstream. Ring-loft build, watertight, exports CAD.
+- **Feature targeting restored:** objective selector (min drag / max lift / max L/D) + strategy
+  toggle (Enclose & streamline vs Preserve inner volume) wired into `gui_shapeopt.py`. Verified
+  both strategies + all objectives end-to-end headless.
+- **Flow-direction picker, "drastic changes" (aggressiveness) slider, angle-of-attack input, and
+  lift/drag/L·D + Cl/Cd readout** added (`body_aero`, thin lifting-body model). All verified.
+- **Drag never increases (reported bug) fixed:** hard never-worse fallback in `optimize_shape`.
+- **Bluff-body drag bug (benchmark-caught):** form drag now acts on the convex-hull (silhouette)
+  frontal area, so a gappy drone isn't under-counted (its arm gaps aren't clean airflow at speed);
+  unchanged for convex/streamlined bodies. NaN-smoothing guard added.
+- **Benchmark — `Downloads/High-Speed Drone (Model).stl` @ 300 mph (134 m/s), travel +z**
+  (Sky's correction — the drone flies along +z, not +x; the x run streamlined the wrong axis):
+  drag **422.7 N → 143.6 N (66% less)**, envelope contains the drone, watertight. ≈ +72% top speed
+  for the same thrust. Fast estimate — CFD-verify pending. Render: `/tmp/drone_opt/benchmark_z.png`.
+- **16-agent test sweep (2nd, on current code):** 6/8 categories clean (containment, drag model,
+  deform never-worse, body_aero, import+designer, GUIs). Found + fixed 3 envelope bugs:
+  (1) **no never-worse guarantee** — enclosing a bluff/gappy body at low aggressiveness or at AoA
+  could raise drag; added a fallback-to-original on the chosen objective (matches the deform engine).
+  (2) **extension bounds too small** at low aggressiveness → couldn't streamline enough; raised the
+  nose/tail minimums. (3) **max_LD occasionally < min_drag L/D** (DE noise) → popsize 15, tol 1e-4.
+  All re-verified: never-worse holds on every bluff repro; max_LD dominates min_drag across seeds.
+- **GUI extras:** before/after overlay (your shape gray + optimized green) and a same-thrust
+  top-speed line in the results.
+
+### 2026-07-06 — SHAPE OPTIMIZER (the correct tool) + CFD validation
+- **`optimaero/shapeopt/optimize.py`:** the right engine at last — it DEFORMS the user's imported
+  shape's outer surface (elongate + nose/tail taper + smoothing) to reduce drag, while a robust
+  signed-distance keep-out constraint preserves the inner volume. Optimizes THEIR geometry; does
+  not wrap a new body around a box (the earlier mistake). Fast physics-informed drag estimate.
+- **Keep-out bug found + fixed:** the first version used `contains()` (flaky on smoothed meshes),
+  so the optimizer shrank past the keep-out (preserved=False). Replaced with signed-distance
+  clearance + margin. Verified preserved=True, drag −59% (estimate) on a test box.
+- **CFD-validated safely on the Mac:** ran OpenFOAM (Docker, HARD-capped: 12 GB / 6 cores / coarse
+  mesh / memory watchdog) on before vs after — **no crash, host stayed >24 GB free**. CFD drag
+  3.92 N → 0.44 N = **89% reduction** (confirms the optimizer's direction; magnitude exceeds the
+  59% estimate — the fast model under-counts pressure-drag collapse). Coarse mesh ±30–50%.
+- Verify-against-truth loop demonstrated: fast estimate searches, capped CFD confirms.
+
+### 2026-07-06 — Real CAD-import bug fixed (units) + machine/Docker relief
+- **Units bug (severe, verifier-caught):** `import_volume` read raw file units, so a part
+  modeled in **mm** (the CAD norm) was treated as **metres** — a 300 mm part became a 300 m
+  payload and the design was garbage. This was the actual "import doesn't work" (not a stale
+  process, as I'd wrongly concluded). Fixed: `import_volume(path, units="mm")` scales to metres;
+  GUI has a **units selector** (mm/cm/m/in, default mm). Verified: 300×100×80 mm → 0.30×0.10×0.08 m.
+- Also: clearer error on empty/corrupt files; mesh uses axis-aligned bbox (exact for
+  axis-aligned parts; conservative-but-safe for rotated). Quadcopter confirmed working (that
+  one WAS a stale process). `scripts/selftest.py` added (quad + all import formats).
+- **F2 / Docker halted:** one OpenFOAM CFD case put the 69 GB Mac under memory pressure and hung
+  the Docker daemon (Sky couldn't open Docker). Killed the containers, stopped the F2 agent,
+  quit Docker Desktop to free memory. **Finding: generating CFD on this Mac makes it unusable —
+  Stage B's data strategy needs rethinking (cloud / existing dataset / mid-fidelity).**
+
+### 2026-07-06 — Airframe designer (real fix after the ellipse) + GUI
+- **`optimaero/aircraft/`**: a multi-mode airframe designer. Given a payload volume + aircraft
+  type + a selectable mission objective, it DESIGNS an airframe — tuning real features (a wing,
+  body, arms) with ~400–600 aero evaluations via AeroSandbox (VLM + buildup). Airplane mode
+  designs a real lift-generating wing; quadcopter mode tunes a low-drag frame. Objectives:
+  max L/D, max lift, lift-a-target-weight, min drag. Verified: airplane max_LD → L/D 27.6,
+  max_lift → 220 N, lift-target hits exactly 20.0 N; quad min_drag → 0.37 N (finite).
+- **Fixed two exploits found by verification:** VLM ignored fuselage drag (→ fake L/D=9534) →
+  switched to whole-aircraft buildup; quad arms as thin tubes returned NaN → analytic cylinder
+  arm drag.
+- **CAD import for ALL common formats** (`cad3d.import_volume`): STEP/IGES/STP/IGS/BREP via
+  OpenCASCADE, STL/OBJ/PLY/OFF/GLB/3MF via trimesh. **Verified in parallel by 6 Haiku agents**
+  (harness) — they caught a real IGES bug (CadQuery has no IGES reader), fixed via OCP.
+- **Aircraft CAD export** (`aircraft/export.py`): designed aircraft → STL/OBJ/PLY (mesh).
+- **GUI** (`optimaero/gui_aircraft.py`): pick type + objective, type or **Import CAD** the
+  payload, Design it → rotatable 3D aircraft + lift/drag/L-D → Save CAD. Verified end-to-end.
+- Aero note: uses AeroSandbox methods now; Sky's CFD-trained 3D surrogate (Stage B, Docker
+  ready) swaps in later to drive the design with his ML.
+
 ### 2026-07-06 — 3D viewer + reframed docs to the real product
 - **3D viewer in the GUI** (`gui3d.py`): the flat silhouette is now a rotatable 3D view — the
   streamlined enclosure surface with the component box wireframe inside it (matplotlib 3D).
