@@ -18,10 +18,45 @@ from scipy.optimize import differential_evolution
 RHO, NU = 1.225, 1.5e-5
 
 
-def load_shape(path: str, units: str = "mm") -> trimesh.Trimesh:
+def make_watertight(mesh: trimesh.Trimesh):
+    """Best-effort convert an imported mesh into ONE watertight solid — the additive booleans need a
+    volume, and CAD/STL exports often aren't watertight. Most common case: a multi-body export (e.g.
+    Fusion's body + motor mounts as separate overlapping solids) reads as one non-watertight surface;
+    boolean-unioning the solid components fixes it. Returns (mesh, note)."""
+    if mesh.is_watertight:
+        return mesh, "watertight"
+    try:
+        parts = mesh.split(only_watertight=False)
+    except Exception:
+        parts = [mesh]
+    wt = [p for p in parts if p.is_watertight]
+    if wt:                                                   # union the solid bodies into one
+        try:
+            u = wt[0] if len(wt) == 1 else trimesh.boolean.union(wt)
+            if u is not None and u.is_watertight and u.volume > 0:
+                note = f"repaired: unioned {len(wt)} solid bodies"
+                if len(wt) < len(parts):
+                    note += f" (dropped {len(parts) - len(wt)} non-solid fragment(s))"
+                return u, note
+        except Exception:
+            pass
+    m = mesh.copy()                                          # fallback: clean up + fill holes
+    try:
+        m.merge_vertices(); m.update_faces(m.nondegenerate_faces()); m.update_faces(m.unique_faces())
+        m.remove_unreferenced_vertices()
+        trimesh.repair.fill_holes(m); trimesh.repair.fix_normals(m)
+    except Exception:
+        pass
+    return (m, "repaired: filled holes") if m.is_watertight else \
+        (m, "WARNING: not watertight — the optimizer may be unable to add material")
+
+
+def load_shape(path: str, units: str = "mm", repair: bool = True) -> trimesh.Trimesh:
     from optimaero.three_d.cad3d import UNIT_SCALE
     mesh = trimesh.load(path, force="mesh")
     mesh.apply_scale(UNIT_SCALE.get(units, 0.001))
+    if repair:
+        mesh, _ = make_watertight(mesh)
     return mesh
 
 

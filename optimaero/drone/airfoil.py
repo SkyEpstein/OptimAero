@@ -77,23 +77,43 @@ def add_tail(drone: trimesh.Trimesh, seg: dict, flow_axis: str = "z",
     return drone.union(cone) if cone.is_watertight else drone
 
 
+def _arm_thickness(mesh, r_in, r_pod, theta, la, lb, span):
+    """Measure an arm's true cross-section thickness by slicing perpendicular to it at mid-span, so the
+    airfoil can be sized to the ARM (a proper teardrop that hugs it), not to the drone or the motor pod.
+    Clamped to a sane band; falls back to a fraction of the span if the slice fails."""
+    fallback = float(np.clip(0.18 * span, 0.006, 0.03))
+    try:
+        r_mid = 0.5 * (r_in + r_pod)
+        normal = np.zeros(3); normal[la] = np.cos(theta); normal[lb] = np.sin(theta)
+        sec = mesh.section(plane_origin=normal * r_mid, plane_normal=normal)
+        if sec is not None:
+            p2, _ = sec.to_planar()
+            return float(np.clip(max(p2.extents), 0.006, 0.4 * span))
+    except Exception:
+        pass
+    return fallback
+
+
 def airfoil_arms(drone: trimesh.Trimesh, seg: dict, flow_axis: str = "z",
                  chord: float | None = None, thick_scale: float = 1.0,
                  prop_clear: bool = True) -> trimesh.Trimesh:
     axis = AXES[flow_axis]
     la, lb = [i for i in range(3) if i != axis]
     rmax = seg["rmax"]; r_in = seg["r_core"]
-    ch = chord if chord else 0.9 * rmax          # chord ≈ arm length scale
+    chord_s = (chord / rmax) if chord else 1.0   # the optimizer's chord knob (≈0.9–2.6), decoupled from size
     parts = [drone]
     for disk in seg["rotor_disks"]:
         cx, cy = disk["center_lat"]
         theta = float(np.arctan2(cy, cx))
         r_pod = float(np.hypot(cx, cy))
         span = max(r_pod - r_in, 1e-3)
-        # arm thickness ≈ 2× the pod radius is too fat; use a slim airfoil the flow likes
-        thick = max(0.06 * ch, 2 * disk["radius"] * 0.5) * thick_scale
-        parts.append(_strut(ch * (r_pod / rmax + 0.2), thick, span, theta, axis, la, lb,
-                            r_in, disk["axis_pos"]))
+        # A PROPER airfoil sized to the arm: thickness hugs the round arm (never thinner, so the fairing
+        # encloses it), chord = fineness × thickness (a real teardrop, ~4–6:1), NOT tied to arm length.
+        arm_t = _arm_thickness(drone, r_in, r_pod, theta, la, lb, span)
+        thick = arm_t * max(thick_scale, 1.05)
+        fineness = float(np.clip(3.5 + chord_s, 3.5, 6.5))
+        strut_chord = fineness * thick
+        parts.append(_strut(strut_chord, thick, span, theta, axis, la, lb, r_in, disk["axis_pos"]))
     result = trimesh.boolean.union([p for p in parts if p.is_watertight])
 
     if prop_clear and seg["rotor_disks"]:

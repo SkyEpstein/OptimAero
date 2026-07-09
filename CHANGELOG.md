@@ -4,6 +4,35 @@ All notable decisions and milestones for **OptimAero**. Honest numbers only.
 
 ## [Unreleased]
 
+### 2026-07-09 — Airfoils sized to the ARM (were absurdly oversized); lengthened+props result
+- **Airfoils were built comically oversized** (Sky: "why is the airfoil so long — it's thickening the
+  arms"). Measured: chord 220 mm on a 190 mm drone, fineness 24:1, thickness driven by the motor-pod
+  radius. Cause: chord scaled to `rmax` (arm *length*) and thickness to the pod, and CFD's marginal
+  preference for "longer" ran it to a giant fin. **Fix (`airfoil.py`):** `_arm_thickness()` slices each
+  arm to measure its true cross-section (~13 mm), and the airfoil is now a proper teardrop that HUGS the
+  arm — thickness ≥ arm (encloses it), chord = fineness × thickness (~5:1), decoupled from drone size.
+  Result: 14 mm × 70 mm instead of 9 mm × 220 mm.
+- **Lengthened model + proper airfoils + realistic 5″ props (127 mm keep-clear): 82.6 → 23.9 N (−71%)**,
+  CFD-verified (blind 14-eval search), additive-only, props clear — the best, most buildable result yet.
+  Prop size derived from the frame (162 mm motor spacing fits ≤6″; 5″ chosen for margin).
+- **Note:** the airfoil reshape invalidates the drone surrogate + 300-form dataset (built on the old
+  airfoils), so surrogate mode now mis-ranks (gave 51.9 N vs blind's 23.9 N). Blind CFD is the correct
+  path until the sweep is regenerated for the new airfoil parameterization.
+- **Root cause of "I run stuff and it makes no changes":** a non-watertight import. Sky's "Motor Mounts
+  lengthened" model is 5 separate overlapping solids (Fusion body + 4 mounts), so the combined surface
+  isn't watertight; the additive booleans need a closed volume, so EVERY candidate build failed silently
+  and the optimizer fell back to the unmodified drone. (The original model is watertight → worked.)
+- **Fix:** `make_watertight()` (`shapeopt/optimize.py`) repairs imports by boolean-unioning the solid
+  bodies into one watertight solid (fallback: clean + fill holes; warn if still open). Wired into
+  `load_shape` (every engine path) and the GUI import, which now reports "auto-repaired — unioned N solid
+  bodies" or warns. Verified: lengthened drone → repaired (watertight) → builds succeed, `additive_ok=True`,
+  **82.6 → 28.5 N (−66%)**. Its bare drag (82.6 N) is already far below the original's (137.7 N) — extending
+  the mounts along the flow slims it, so the design change itself helped.
+- **Display-loop hardening (`gui_shapeopt._poll`):** any exception in `_show` used to permanently kill the
+  result-display loop (after() never re-armed) — a one-off error would make every later run silently drop
+  its result. Now the loop always re-arms and surfaces errors. Confirmed the original drone displays fine
+  end-to-end via a scripted drive of the real GUI thread/queue/poll/show path.
+
 ### 2026-07-08 — Surrogate-driven drone optimizer (Sky's vision: ML searches, CFD only verifies)
 - **Goal (Sky):** the optimizer should score thousands of forms with an ML surrogate and CFD-verify only
   the top few — "more tuning than CFD allows." Verified blocker: the envelope Cd/Cl surrogate CANNOT score

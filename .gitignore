@@ -8,3 +8,4 @@ tools/xfoil/
 .DS_Store
 .ipynb_checkpoints/
 *.joblib
+*.joblib*

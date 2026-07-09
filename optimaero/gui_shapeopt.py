@@ -17,7 +17,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
-from optimaero.shapeopt.optimize import optimize_shape, load_shape, body_aero
+from optimaero.shapeopt.optimize import optimize_shape, load_shape, body_aero, make_watertight
 from optimaero.shapeopt.envelope import optimize_envelope
 
 STRATEGIES = {"Optimize drone (automatic, CFD)": "auto",
@@ -145,12 +145,25 @@ class ShapeOptGUI:
         if not path:
             return
         try:
-            self.mesh = load_shape(path, units=self.units.get())
+            raw = load_shape(path, units=self.units.get(), repair=False)
+            self.mesh, note = make_watertight(raw)              # solid mesh needed for the additive booleans
             e = self.mesh.extents
-            self.shape_lbl.config(text=f"loaded: {e[0]:.3f}×{e[1]:.3f}×{e[2]:.3f} m")
+            wt = "watertight ✓" if self.mesh.is_watertight else "⚠ NOT watertight"
+            self.shape_lbl.config(text=f"loaded: {e[0]:.3f}×{e[1]:.3f}×{e[2]:.3f} m  ({wt})")
             self._plot(self.mesh, "Imported shape")
             self.run_btn.config(state="normal"); self.save_btn.config(state="disabled")
-            self.status.config(text="Shape loaded. Set airspeed, then Optimize.")
+            if note.startswith("repaired"):
+                self.status.config(text=f"Loaded & auto-repaired — {note.split(':', 1)[1].strip()}. "
+                                        "Set airspeed, then Optimize.")
+            elif note.startswith("WARNING"):
+                messagebox.showwarning(
+                    "Mesh not watertight",
+                    "This mesh isn't a closed solid, so the optimizer may not be able to add material "
+                    "(it would return your drone unchanged). Re-export it from your CAD tool as a single "
+                    "watertight solid (combine/merge the bodies) and re-import.")
+                self.status.config(text="Loaded, but NOT watertight — see warning.")
+            else:
+                self.status.config(text="Shape loaded. Set airspeed, then Optimize.")
         except Exception as e:  # noqa
             messagebox.showerror("Import failed", str(e))
 
@@ -270,22 +283,38 @@ class ShapeOptGUI:
             self.q.put(("err", str(e)))
 
     def _poll(self):
+        item = None
         try:
-            k, p = self.q.get_nowait()
-            if k == "done":
-                self._show(p)
-            elif k == "prog":
-                i, ntot, dr = p
-                self.prog.config(maximum=ntot, value=i)
-                extra = f" — last design {dr:.0f} N" if dr < 1e5 else ""
-                self.status.config(text=f"CFD-verifying candidate {i}/{ntot}{extra}…")
-            else:
-                self.prog.stop()
-                self.run_btn.config(state="normal"); self.status.config(text="Error — see dialog.")
-                messagebox.showerror("Optimize failed", p)
+            item = self.q.get_nowait()
         except queue.Empty:
             pass
-        self.root.after(100, self._poll)
+        try:
+            if item is not None:
+                k, p = item
+                if k == "done":
+                    self._show(p)
+                elif k == "prog":
+                    i, ntot, dr = p
+                    self.prog.config(maximum=ntot, value=i)
+                    extra = f" — last design {dr:.0f} N" if dr < 1e5 else ""
+                    self.status.config(text=f"CFD-verifying candidate {i}/{ntot}{extra}…")
+                else:                                       # ("err", message)
+                    self.prog.stop(); self.run_btn.config(state="normal")
+                    self.status.config(text="Error — see dialog.")
+                    messagebox.showerror("Optimize failed", p)
+        except Exception as e:                              # noqa
+            # A display error must NEVER kill the poll loop — otherwise every later run computes a
+            # correct result that is silently dropped ("makes no changes"). Surface it, keep polling.
+            import traceback
+            traceback.print_exc()
+            try:
+                self.prog.stop(); self.run_btn.config(state="normal")
+                self.status.config(text="Display error — see dialog.")
+                messagebox.showerror("Display error", f"{type(e).__name__}: {e}")
+            except Exception:
+                pass
+        finally:
+            self.root.after(100, self._poll)                # ALWAYS re-arm — the loop must survive
 
     def _show(self, res):
         self.result = res
