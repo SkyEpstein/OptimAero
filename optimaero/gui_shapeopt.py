@@ -249,9 +249,10 @@ class ShapeOptGUI:
             elif strat == "auto":
                 from optimaero.drone.segment import segment_multirotor
                 from optimaero.drone.optimize import (optimize_drone, optimize_drone_surrogate,
-                                                      optimize_drone_general)
+                                                      optimize_drone_general, optimize_drone_universal)
                 from optimaero.drone.surrogate import surrogate_available
                 from optimaero.drone.general_surrogate import general_available
+                from optimaero.universal.surrogate import available as universal_available
                 if not self._docker_ok():
                     raise RuntimeError(
                         "Docker is not running. Automatic drone optimization runs real CFD in Docker "
@@ -265,7 +266,13 @@ class ShapeOptGUI:
                         "there are no arms to airfoil. Check the flow direction and arm count, or use "
                         "'Enclose & streamline' for a general (non-drone) shape.")
                 pcb = lambda i, ntot, dr: self.q.put(("prog", (i, ntot, dr)))
-                if general_available():
+                if universal_available():
+                    # UNIVERSAL surrogate pre-screen (beats blind at equal CFD — score fairing forms by
+                    # their treated-drone geometry, CFD-verify a diverse top-K).
+                    ro = optimize_drone_universal(self.mesh, seg, V, flow_axis=flow, alpha_deg=alpha,
+                                                  top_k=max(1, int(verifyk)),
+                                                  progress=lambda ph, i, n: self.q.put(("uprog", (ph, i, n))))
+                elif general_available():
                     # GENERAL surrogate — works on ANY multirotor: score thousands of treatments in ms
                     # (using this drone's shape descriptors), CFD-verify a diverse top-K.
                     ro = optimize_drone_general(self.mesh, seg, V, flow_axis=flow, alpha_deg=alpha,
@@ -397,10 +404,11 @@ class ShapeOptGUI:
 
         if is_auto:
             sm = res.get("surrogate_meta") or {}
-            if res.get("mode") in ("surrogate", "general") and sm:
-                which = "general ML surrogate (any drone)" if res.get("mode") == "general" else "ML surrogate"
-                how = (f"{which} scored {sm.get('n_search', 0):,} treatments in ms, then CFD-verified the "
-                       f"top {sm.get('top_k_verified', 0)} ({res.get('n_cfd', 0)} CFD runs total)")
+            if res.get("mode") in ("surrogate", "general", "universal") and sm:
+                which = {"general": "general ML surrogate (any drone)",
+                         "universal": "universal ML drag surrogate"}.get(res.get("mode"), "ML surrogate")
+                how = (f"{which} scored {sm.get('n_search', 0):,} fairing forms (no CFD), then CFD-verified "
+                       f"the top {sm.get('top_k_verified', 0)} ({res.get('n_cfd', 0)} CFD runs total)")
             else:
                 how = f"CFD-evaluated {res.get('n_cfd', 0)} forms directly"
             if not res.get("improved", True):

@@ -4,6 +4,17 @@ All notable decisions and milestones for **OptimAero**. Honest numbers only.
 
 ## [Unreleased]
 
+### 2026-07-13 — Drone auto-mode now pre-screened by the universal surrogate (beats blind)
+- The drone auto-mode was blind CFD (the drone-specific surrogates were parked — they only tied blind on
+  the fine fairing-ranking task). Tested whether the UNIVERSAL surrogate (which reads the treated drone's
+  geometry, not a 3-knob ratio) can pre-screen fairings. Head-to-head on the lengthened drone at equal CFD:
+  **surrogate-ranked −55% (36.9 N) vs blind-random −33% (55.3 N)** — the universal surrogate wins because it
+  scores each fairing form by its actual streamlined geometry.
+- **Wired in** (`optimize_drone_universal`): score ~120 additive 6-knob airfoil/tail forms with the universal
+  surrogate (no CFD), CFD-verify a diverse top-K (the GUI "CFD verify" count), return the lowest-drag
+  additive-valid form (never worse than bare). The GUI drone auto-mode now prefers it; falls back to blind if
+  the surrogate is absent. End-to-end: 82.6 → 36.9 N (−55%), 6 CFD, additive-verified.
+
 ### 2026-07-13 — BREAKTHROUGH: universal drag surrogate (works on ANY shape, drones to planes)
 - **Sky's reframing cracked it.** The whole "no surrogate beats blind on one drone" wall was a
   data-diversity failure, not a modeling one: training on ONE archetype (parametric multirotors) overfits
