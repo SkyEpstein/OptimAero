@@ -21,6 +21,13 @@ All notable decisions and milestones for **OptimAero**. Honest numbers only.
 - **Decisive validation:** `predict_drag()` on Sky's real lengthened drone (NOT in training) returns
   **86.2 N from geometry alone, no CFD** — vs CFD's 82.6 N, a **4% error.** The "works on everything" engine
   predicts a real drone's drag instantly. Next: wire it as the optimizer's drag engine for any shape.
+- **Wired into the GUI** (`universal/optimize.py`): (1) `aero_estimate` — every strategy's drag/Cd readout now
+  comes from the universal surrogate (≈5% on a real drone) instead of `body_aero` (which read 402 N vs CFD's
+  82.6 N, ~5× off). (2) New **"Optimize any shape (universal ML)"** strategy (`optimize_universal`) — the
+  surrogate scores ~1200 streamlining-deformation candidates in seconds, CFD-verifies a diverse top-K, returns
+  the lowest-drag one (never worse than the input). Validated: bluff cube **17.2 → 0.44 N (−97%)**; a drone
+  correctly returns unchanged (deformation ≠ fairings — the drone auto-mode handles fairings). One universal
+  ML drag engine now optimizes any imported shape.
 - **Correction (pre-commit review):** the earlier general-DRONE surrogate (2026-07-09/10 entries) was found to
   have a broken serve path — after the HD/bare-feature changes, `optimize_drone_general` no longer matches the
   deployed model's features, so `predict` KeyErrors and the optimizer silently falls back to blind CFD (safe,

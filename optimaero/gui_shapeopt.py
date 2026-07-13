@@ -18,9 +18,11 @@ from matplotlib.figure import Figure
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
 from optimaero.shapeopt.optimize import optimize_shape, load_shape, body_aero, make_watertight
+from optimaero.universal.optimize import aero_estimate
 from optimaero.shapeopt.envelope import optimize_envelope
 
-STRATEGIES = {"Optimize drone (automatic, CFD)": "auto",
+STRATEGIES = {"Optimize any shape (universal ML)": "universal",
+              "Optimize drone (automatic, CFD)": "auto",
               "Enclose & streamline": "envelope", "Preserve inner volume": "deform",
               "Ducted drone (multirotor)": "ducted", "Airfoil arms (multirotor)": "airfoil"}
 OBJECTIVE_LABELS = {"Minimize drag": "min_drag", "Maximize lift": "max_lift", "Maximize L/D": "max_LD"}
@@ -192,9 +194,11 @@ class ShapeOptGUI:
                                 "optimize for lift or L/D."); return
         self.last_V, self.last_alpha, self.last_flow = V, alpha, flow
         self.run_btn.config(state="disabled"); self.save_btn.config(state="disabled")
-        if strat == "auto":
-            self.status.config(text="Autonomous CFD optimization — the program is designing the "
-                                    "tail + airfoils itself (~4–6 min, 12 CFD candidates)…")
+        if strat in ("auto", "universal"):
+            self.status.config(text=("Universal ML: scoring ~1200 shape candidates, then CFD-verifying the "
+                                     "best few…" if strat == "universal" else
+                                     "Autonomous CFD optimization — the program is designing the "
+                                     "tail + airfoils itself (~4–6 min, 12 CFD candidates)…"))
             self.prog.config(mode="determinate", maximum=12, value=0)
         else:
             busy = "Building ducted drone shell…" if strat == "ducted" else "Optimizing your shape…"
@@ -216,7 +220,22 @@ class ShapeOptGUI:
 
     def _work(self, strat, obj, V, alpha, keep, flow, aggr, arms, prop_r):
         try:
-            if strat == "auto":
+            if strat == "universal":
+                from optimaero.universal.surrogate import available
+                from optimaero.universal.optimize import optimize_universal
+                if not available():
+                    raise RuntimeError(
+                        "The universal drag model isn't trained yet. Run "
+                        "`python -m optimaero.universal.surrogate` to build it, then retry.")
+                if not self._docker_ok():
+                    raise RuntimeError("Universal optimize CFD-verifies the result in Docker. Start Docker "
+                                       "Desktop and retry.")
+                r = optimize_universal(self.mesh, V, flow_axis=flow, alpha_deg=alpha, aggressiveness=aggr,
+                                       progress=lambda ph, i, n: self.q.put(("uprog", (ph, i, n))))
+                res = {"kind": "universal", "optimized": r.optimized, "mb": r.mb, "ma": r.ma, "ok": True,
+                       "params": r.params, "improved": r.improved, "baseline_ok": r.baseline_ok,
+                       "n_cfd": r.n_cfd, "n_scored": r.n_scored, "mode": "universal"}
+            elif strat == "auto":
                 from optimaero.drone.segment import segment_multirotor
                 from optimaero.drone.optimize import (optimize_drone, optimize_drone_surrogate,
                                                       optimize_drone_general)
@@ -273,15 +292,15 @@ class ShapeOptGUI:
                 seg = segment_multirotor(self.mesh, up=flow, n_arms=arms, prop_radius=prop_r)
                 chord = (0.9 + 1.5 * aggr) * seg["rmax"]   # drastic slider = chord (look ↔ drag: CFD −4% to −19%)
                 out = airfoil_arms(self.mesh, seg, flow_axis=flow, chord=chord, thick_scale=0.6)
-                mb = body_aero(self.mesh, V, alpha_deg=alpha, flow_axis=flow)
-                ma = body_aero(out, V, alpha_deg=alpha, flow_axis=flow)
+                mb = aero_estimate(self.mesh, V, alpha_deg=alpha, flow_axis=flow)
+                ma = aero_estimate(out, V, alpha_deg=alpha, flow_axis=flow)
                 res = {"kind": "airfoil", "optimized": out, "mb": mb, "ma": ma, "ok": True,
                        "params": {"arms": arms, "chord_×rmax": round(chord / seg["rmax"], 1)}}
             else:
                 r = optimize_shape(self.mesh, V, flow_axis=flow, keepout_frac=keep,
                                    aggressiveness=aggr, maxiter=14)
-                mb = body_aero(self.mesh, V, alpha_deg=alpha, flow_axis=flow)
-                ma = body_aero(r.optimized, V, alpha_deg=alpha, flow_axis=flow)
+                mb = aero_estimate(self.mesh, V, alpha_deg=alpha, flow_axis=flow)
+                ma = aero_estimate(r.optimized, V, alpha_deg=alpha, flow_axis=flow)
                 res = {"kind": "deform", "optimized": r.optimized, "mb": mb, "ma": ma,
                        "ok": r.keepout_preserved, "params": r.params}
             self.q.put(("done", res))
@@ -304,6 +323,11 @@ class ShapeOptGUI:
                     self.prog.config(maximum=ntot, value=i)
                     extra = f" — last design {dr:.0f} N" if dr < 1e5 else ""
                     self.status.config(text=f"CFD-verifying candidate {i}/{ntot}{extra}…")
+                elif k == "uprog":                          # universal optimizer: score → verify phases
+                    ph, i, ntot = p
+                    self.prog.config(maximum=ntot, value=i)
+                    self.status.config(text=(f"Scoring candidate {i}/{ntot} with the ML surrogate (no CFD)…"
+                                             if ph == "score" else f"CFD-verifying candidate {i}/{ntot}…"))
                 else:                                       # ("err", message)
                     self.prog.stop(); self.run_btn.config(state="normal")
                     self.status.config(text="Error — see dialog.")
@@ -328,7 +352,8 @@ class ShapeOptGUI:
         self.run_btn.config(state="normal")
         title = {"ducted": "Your drone (gray) + ducted shell (green)",
                  "airfoil": "Your drone (gray) + airfoil arms (green)",
-                 "auto": "Your drone (gray) + autonomous optimization (green)"}.get(
+                 "auto": "Your drone (gray) + autonomous optimization (green)",
+                 "universal": "Your shape (gray) + universal-ML optimization (green)"}.get(
                      res["kind"], "Your shape (gray) + optimized (green)")
         opt = res.get("optimized")
         if opt is None:
@@ -377,6 +402,19 @@ class ShapeOptGUI:
             else:
                 ok = ("⚠ additive-only check FAILED on the best design — it may not fully contain your "
                       "drone. Shown for inspection only; do not use as-is.")
+        elif res["kind"] == "universal":
+            ncfd = res.get("n_cfd", 0)
+            how = (f"universal ML optimizer — scored {res.get('n_scored', 0):,} shape candidates with the drag "
+                   f"surrogate (no CFD), CFD-verified the best {max(0, ncfd - 1)} + your input ({ncfd} CFD runs)")
+            if not res.get("baseline_ok", True):
+                ok = (f"{how}. ⚠ your input's own CFD didn't converge, so the % vs 'before' isn't a measured "
+                      "comparison — treat the before-drag as an estimate.")
+            elif not res.get("improved", False):
+                ok = (f"{how}. No streamlining beat your input — returned UNCHANGED. (Deformation doesn't help "
+                      "this shape; for a multirotor, use the drone mode's fairings.)")
+            else:
+                ok = (f"{how}, kept the lowest-drag one. Drag before/after are REAL CFD; never worse than your "
+                      "input. (lift/Cd below are surrogate estimates.)")
         elif res["kind"] == "airfoil":
             ok = ("airfoil arms added — footprint unchanged, props clear (CFD ≈ −4% to −19% by chord; "
                   "the fast estimate below is unreliable for drones — CFD-verify)")
@@ -403,8 +441,14 @@ class ShapeOptGUI:
             lines.append(f"coeffs: Cd = {ma['Cd']:.4f}"
                          + ("" if lift_noise else f"    Cl = {ma['Cl']:.4f}"))
         lines += [ok, f"params: {{{', '.join(f'{k}={v:.2f}' for k, v in res['params'].items())}}}"]
-        lines.append("Real CFD (OpenFOAM); drag is the optimization target." if is_auto
-                     else "Fast estimates — CFD-verify before final use. (Lift ~0 at 0° for a symmetric body.)")
+        if is_auto:
+            lines.append("Real CFD (OpenFOAM); drag is the optimization target.")
+        elif res["kind"] == "universal" and res.get("baseline_ok", True):
+            lines.append("Drag is CFD-verified (OpenFOAM); lift/L·D/Cd/Cl are universal-surrogate estimates.")
+        elif res["kind"] == "universal":
+            lines.append("All numbers are universal-surrogate estimates — your input's CFD didn't converge.")
+        else:
+            lines.append("Fast estimates — CFD-verify before final use. (Lift ~0 at 0° for a symmetric body.)")
         self.out.config(state="normal"); self.out.delete("1.0", "end")
         self.out.insert("1.0", "\n".join(lines)); self.out.config(state="disabled")
         self.status.config(text="Done. Save the optimized shape as CAD.")
