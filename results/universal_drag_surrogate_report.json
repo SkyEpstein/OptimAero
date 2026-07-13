@@ -1,0 +1,64 @@
+{
+  "n": 720,
+  "n_types": 7,
+  "features": [
+    "fineness",
+    "A_front",
+    "A_wet",
+    "vol",
+    "Dmax",
+    "wet_front",
+    "prismatic",
+    "x_maxarea",
+    "base_area",
+    "nose_area",
+    "area_smooth",
+    "max_xsec",
+    "area_q1",
+    "area_q2",
+    "area_q3",
+    "moment0",
+    "moment1",
+    "moment2",
+    "front_frac",
+    "back_frac",
+    "mean_abs_nx"
+  ],
+  "overall_rank": 0.9697780409813033,
+  "confidence_gated": {
+    "rank@100%": 0.9697780409813033,
+    "rank@50%": 0.9788645488519716,
+    "rank@25%": 0.9536549481979897
+  },
+  "per_type": {
+    "bluff": {
+      "n": 95,
+      "rank": 0.8835946248600224
+    },
+    "bodies": {
+      "n": 152,
+      "rank": 0.9027809102030494
+    },
+    "drones": {
+      "n": 117,
+      "rank": 0.9215483522906083
+    },
+    "fuselage": {
+      "n": 93,
+      "rank": 0.7572140491181999
+    },
+    "nacelle": {
+      "n": 94,
+      "rank": 0.7899505111440233
+    },
+    "plane": {
+      "n": 83,
+      "rank": 0.6201250997019436
+    },
+    "wing": {
+      "n": 86,
+      "rank": 0.6259634888438134
+    }
+  },
+  "eval": "held-out (KFold-5) rank of predicted vs CFD Cd; confidence = GBR on |log-resid|"
+}

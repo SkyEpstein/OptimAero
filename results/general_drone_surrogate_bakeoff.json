@@ -1,0 +1,86 @@
+{
+  "rows": 3221,
+  "n_drones": 124,
+  "target": "ratio",
+  "eval_regime": "GroupKFold BY DRONE (held-out drones, no leakage). CAVEAT: the headline R2 is the BEST of the model pool on ONE split \u2014 selection-optimistic, no error bar; see per-model spread in 'global'. The optimizer relies on the within-drone RANK corr + CFD-verify, not this R2.",
+  "held_out_drone": {
+    "best_model": "ridge",
+    "global": {
+      "hgb": {
+        "rmse": 0.37007525105041567,
+        "r2": -0.10169974854654917
+      },
+      "extratrees": {
+        "rmse": 0.3537833306852311,
+        "r2": -0.006834058168601276
+      },
+      "mlp": {
+        "rmse": 0.48634975382523954,
+        "r2": -0.9027448985421165
+      },
+      "ridge": {
+        "rmse": 0.35159746664280445,
+        "r2": 0.005569033230702791
+      },
+      "knn": {
+        "rmse": 0.35355767459505694,
+        "r2": -0.005550075800849541
+      },
+      "lgbm": {
+        "rmse": 0.3717577287896977,
+        "r2": -0.11173986220474474
+      }
+    },
+    "best": {
+      "rmse": 0.35159746664280445,
+      "r2": 0.005569033230702791
+    },
+    "confidence": {
+      "rmse@100%": 0.35159746664280445,
+      "rmse@50%": 0.07063719414655767,
+      "rmse@25%": 0.07005499463749698
+    },
+    "within_drone_rank_corr": 0.6917135373586987,
+    "model_r2_spread": [
+      -0.903,
+      -0.112,
+      -0.102,
+      -0.007,
+      -0.006,
+      0.006
+    ]
+  },
+  "n_features": 30,
+  "features": [
+    "n_rotors",
+    "rmax",
+    "r_core",
+    "r_core_ratio",
+    "arm_len",
+    "arm_r",
+    "pod_r",
+    "arm_slender",
+    "pod_arm",
+    "A_front",
+    "A_plan",
+    "A_wet",
+    "vol",
+    "Dmax",
+    "body_fineness",
+    "wet_front",
+    "plan_front",
+    "prismatic",
+    "x_maxarea",
+    "area_smooth",
+    "base_area",
+    "nose_area",
+    "tail_len",
+    "tail_base",
+    "arm_chord",
+    "arm_thick",
+    "nose_len",
+    "nose_base",
+    "bare_cd",
+    "bare_cda"
+  ]
+}

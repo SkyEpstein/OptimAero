@@ -48,10 +48,13 @@ def _strut(chord, thick, span, theta, axis, la, lb, r_in, arm_pos):
 
 
 def add_tail(drone: trimesh.Trimesh, seg: dict, flow_axis: str = "z",
-             tail_len_frac: float = 1.4, body_source: trimesh.Trimesh | None = None) -> trimesh.Trimesh:
+             tail_len_frac: float = 1.4, base_scale: float = 1.0,
+             body_source: trimesh.Trimesh | None = None) -> trimesh.Trimesh:
     """Add a streamlined boat-tail to the body's downstream end so the wake closes instead of
     separating off a flat base — usually the biggest single drag reduction on a bluff-based body.
     The tail tapers inward from the base cross-section to a point, so it does NOT grow the footprint.
+    `base_scale` scales the tail's starting cross-section (1.0 = matches the body base and fully closes
+    the wake; <1 leaves a small step — a shape knob).
 
     `drone` is the mesh the cone is unioned onto (may already carry airfoil arms). `body_source`, if
     given, is the ORIGINAL drone whose faces match `seg['face_labels']` — body detection must use it,
@@ -65,7 +68,8 @@ def add_tail(drone: trimesh.Trimesh, seg: dict, flow_axis: str = "z",
     L = max(zmax - zmin, 1e-6)
     base = bv[bv[:, axis] < zmin + 0.2 * L]                 # the downstream (-flow) base ring
     cy = float(base[:, la].mean()); cz = float(base[:, lb].mean())
-    ay = max(float(np.ptp(base[:, la])) / 2, 1e-3); az = max(float(np.ptp(base[:, lb])) / 2, 1e-3)
+    ay = max(float(np.ptp(base[:, la])) / 2, 1e-3) * base_scale
+    az = max(float(np.ptp(base[:, lb])) / 2, 1e-3) * base_scale
     tail_len = tail_len_frac * L
     cone = trimesh.creation.cone(radius=1.0, height=tail_len, sections=40)   # base z=0, apex +z
     cone.apply_transform(trimesh.transformations.rotation_matrix(np.pi, [1, 0, 0]))  # apex → −z (downstream)
@@ -77,10 +81,37 @@ def add_tail(drone: trimesh.Trimesh, seg: dict, flow_axis: str = "z",
     return drone.union(cone) if cone.is_watertight else drone
 
 
+def add_nose(drone: trimesh.Trimesh, seg: dict, flow_axis: str = "z",
+             nose_len_frac: float = 0.8, base_scale: float = 1.0,
+             body_source: trimesh.Trimesh | None = None) -> trimesh.Trimesh:
+    """Add a streamlined nose fairing to the body's UPSTREAM (+flow) end so the front meets the air as a
+    point instead of a blunt face — cuts stagnation/pressure drag. Apex points upstream (+flow); the cone
+    base matches the body's front cross-section, so it does NOT grow the frontal footprint. Additive."""
+    axis = AXES[flow_axis]
+    la, lb = [i for i in range(3) if i != axis]
+    src = body_source if body_source is not None else drone
+    body = _submesh(src, seg["face_labels"], lambda l: l == "body") or src
+    bv = body.vertices
+    zmin = float(bv[:, axis].min()); zmax = float(bv[:, axis].max())
+    L = max(zmax - zmin, 1e-6)
+    front = bv[bv[:, axis] > zmax - 0.2 * L]                # the upstream (+flow) front ring
+    cy = float(front[:, la].mean()); cz = float(front[:, lb].mean())
+    ay = max(float(np.ptp(front[:, la])) / 2, 1e-3) * base_scale
+    az = max(float(np.ptp(front[:, lb])) / 2, 1e-3) * base_scale
+    nose_len = nose_len_frac * L
+    cone = trimesh.creation.cone(radius=1.0, height=nose_len, sections=40)   # base z=0, apex +z (upstream)
+    cone.apply_scale([ay, az, 1.0])
+    if axis != 2:
+        cone.apply_transform(trimesh.geometry.align_vectors([0, 0, 1], np.eye(3)[axis]))
+    t = np.zeros(3); t[la] = cy; t[lb] = cz; t[axis] = zmax
+    cone.apply_translation(t)
+    return drone.union(cone) if cone.is_watertight else drone
+
+
 def _arm_thickness(mesh, r_in, r_pod, theta, la, lb, span):
-    """Measure an arm's true cross-section thickness by slicing perpendicular to it at mid-span, so the
-    airfoil can be sized to the ARM (a proper teardrop that hugs it), not to the drone or the motor pod.
-    Clamped to a sane band; falls back to a fraction of the span if the slice fails."""
+    """Measure an arm strut's true cross-section thickness by slicing ⟂ to the arm at mid-span and taking
+    the SMALLEST cross-section loop — the thin strut — instead of the max over all loops (which also picks
+    up the body/opposite-arm the plane clips). Works on sparse (synthetic) and dense (CAD) meshes alike."""
     fallback = float(np.clip(0.18 * span, 0.006, 0.03))
     try:
         r_mid = 0.5 * (r_in + r_pod)
@@ -88,7 +119,12 @@ def _arm_thickness(mesh, r_in, r_pod, theta, la, lb, span):
         sec = mesh.section(plane_origin=normal * r_mid, plane_normal=normal)
         if sec is not None:
             p2, _ = sec.to_planar()
-            return float(np.clip(max(p2.extents), 0.006, 0.4 * span))
+            polys = [g for g in getattr(p2, "polygons_closed", []) if g is not None and g.area > 0]
+            if polys:
+                arm = min(polys, key=lambda g: g.area)                 # the strut = the smallest loop
+                x0, y0, x1, y1 = arm.bounds
+                return float(np.clip(max(x1 - x0, y1 - y0), 0.004, 0.4 * span))
+            return float(np.clip(max(p2.extents), 0.004, 0.4 * span))
     except Exception:
         pass
     return fallback

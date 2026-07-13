@@ -153,8 +153,9 @@ def load_surrogate(path: str = ARTIFACT) -> "DroneSurrogate":
 
 if __name__ == "__main__":
     import sys
+    from optimaero.drone.surrogate import train_and_save as _train  # real module path for the pickle
     path = sys.argv[1] if len(sys.argv) > 1 else "data/processed/drone_form.parquet"
-    s = train_and_save(path)
+    s = _train(path)
     r = json.load(open(REPORT))
     print(f"rows={r['rows']} target={r['target']} (drag area = Cd·A_front, speed-invariant) "
           f"condition={r['condition']}")

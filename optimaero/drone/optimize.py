@@ -21,8 +21,28 @@ import numpy as np
 import trimesh
 
 from optimaero.shapeopt.optimize import _flow_rotation
-from optimaero.drone.airfoil import airfoil_arms, add_tail
+from optimaero.drone.airfoil import airfoil_arms, add_tail, add_nose
 from optimaero.cfd.foam import cfd_label
+
+# expanded (high-dimensional) additive-treatment space — 6 knobs vs the base 3. In this bigger space a
+# blind CFD search (a dozen samples) covers almost nothing, so a surrogate that scores thousands wins.
+KNOBS_HD = ["tail_len", "tail_base", "arm_chord", "arm_thick", "nose_len", "nose_base"]
+LO_HD = np.array([0.0, 0.6, 0.9, 0.5, 0.0, 0.6])
+HI_HD = np.array([2.2, 1.0, 2.6, 1.1, 1.5, 1.0])
+
+
+def _build_hd(drone, seg, flow_axis, p):
+    """Build a drone form from the 6-knob expanded treatment: airfoil arms + boat-tail (length, base) +
+    nose fairing (length, base). Additive-only; body detection uses the original drone via body_source."""
+    tail_len, tail_base, chord_s, thick_s, nose_len, nose_base = (float(x) for x in p)
+    m = airfoil_arms(drone, seg, flow_axis=flow_axis, chord=chord_s * seg["rmax"], thick_scale=thick_s)
+    if tail_len > 0.15:
+        m = add_tail(m, seg, flow_axis=flow_axis, tail_len_frac=tail_len, base_scale=tail_base,
+                     body_source=drone)
+    if nose_len > 0.10:
+        m = add_nose(m, seg, flow_axis=flow_axis, nose_len_frac=nose_len, base_scale=nose_base,
+                     body_source=drone)
+    return m
 
 LO = np.array([0.0, 0.9, 0.5])          # treatment knob bounds: tail_len, chord×rmax, thick
 HI = np.array([2.2, 2.6, 1.1])
@@ -230,3 +250,48 @@ def optimize_drone_surrogate(drone: trimesh.Trimesh, seg: dict, V: float, flow_a
         meta["winner_surrogate_pred_cda"] = float(cda_pred[j])
         meta["winner_cfd_drag"] = float(res.drag_after)
     return res
+
+
+def optimize_drone_general(drone: trimesh.Trimesh, seg: dict, V: float, flow_axis: str = "z",
+                           surrogate=None, alpha_deg: float = 0.0, n_search: int = 8000,
+                           top_k: int = 6, workers: int = 5, seed: int = 0,
+                           progress=None) -> DroneResult:
+    """Surrogate-driven search with the GENERAL surrogate — works on ANY multirotor. Computes the imported
+    drone's shape descriptors (no CFD), predicts the reduction ratio for n_search treatments, and
+    CFD-verifies a diverse top-K. Falls back to blind CFD if the surrogate is missing or errors."""
+    from optimaero.drone.general_surrogate import load_general
+    from optimaero.drone.generator import drone_descriptors
+
+    def _blind():
+        return optimize_drone(drone, seg, V, flow_axis=flow_axis, n=max(8, top_k + 6),
+                              workers=workers, seed=seed, alpha_deg=alpha_deg, progress=progress)
+
+    if surrogate is None:
+        try:
+            surrogate = load_general()
+        except Exception:
+            return _blind()
+    try:
+        desc = drone_descriptors(drone, seg, flow_axis)  # geometric, no CFD
+    except Exception:
+        return _blind()
+    rng = np.random.default_rng(seed)
+    cand = LO + (HI - LO) * rng.random((n_search, 3))
+    rows = [{**desc, "tail_len": float(c[0]), "chord": float(c[1]), "thick": float(c[2])} for c in cand]
+    try:
+        ratio_pred, _ = surrogate.predict(rows)
+        ratio_pred = np.asarray(ratio_pred, float)
+    except Exception:
+        return _blind()
+    finite = np.isfinite(ratio_pred)
+    if not finite.any():
+        return _blind()
+    ratio_pred = np.where(finite, ratio_pred, np.inf)    # lowest ratio = most drag reduction
+    order = np.argsort(ratio_pred)
+    picks = _diverse_topk(cand, order, top_k)
+    verify = [BARE] + [cand[i] for i in picks]
+    meta = {"n_search": int(n_search), "top_k_verified": len(picks),
+            "surrogate_best_pred_ratio": float(ratio_pred[order[0]]),
+            "surrogate_meta": getattr(surrogate, "meta", {})}
+    evals = _cfd_eval_params(drone, seg, flow_axis, verify, V, alpha_deg, workers, progress)
+    return _result_from_evals(evals, drone, alpha_deg, mode="general", surrogate_meta=meta)

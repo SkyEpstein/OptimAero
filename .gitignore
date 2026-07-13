@@ -9,3 +9,4 @@ tools/xfoil/
 .ipynb_checkpoints/
 *.joblib
 *.joblib*
+catboost_info/

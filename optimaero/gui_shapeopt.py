@@ -218,8 +218,10 @@ class ShapeOptGUI:
         try:
             if strat == "auto":
                 from optimaero.drone.segment import segment_multirotor
-                from optimaero.drone.optimize import optimize_drone, optimize_drone_surrogate
+                from optimaero.drone.optimize import (optimize_drone, optimize_drone_surrogate,
+                                                      optimize_drone_general)
                 from optimaero.drone.surrogate import surrogate_available
+                from optimaero.drone.general_surrogate import general_available
                 if not self._docker_ok():
                     raise RuntimeError(
                         "Docker is not running. Automatic drone optimization runs real CFD in Docker "
@@ -233,8 +235,12 @@ class ShapeOptGUI:
                         "there are no arms to airfoil. Check the flow direction and arm count, or use "
                         "'Enclose & streamline' for a general (non-drone) shape.")
                 pcb = lambda i, ntot, dr: self.q.put(("prog", (i, ntot, dr)))
-                if surrogate_available():
-                    # surrogate-driven: score thousands of forms in ms, CFD-verify only a diverse top-K
+                if general_available():
+                    # GENERAL surrogate — works on ANY multirotor: score thousands of treatments in ms
+                    # (using this drone's shape descriptors), CFD-verify a diverse top-K.
+                    ro = optimize_drone_general(self.mesh, seg, V, flow_axis=flow, alpha_deg=alpha,
+                                                n_search=8000, top_k=6, progress=pcb)
+                elif surrogate_available():
                     ro = optimize_drone_surrogate(self.mesh, seg, V, flow_axis=flow, alpha_deg=alpha,
                                                   n_search=8000, top_k=6, progress=pcb)
                 else:
@@ -355,8 +361,9 @@ class ShapeOptGUI:
 
         if is_auto:
             sm = res.get("surrogate_meta") or {}
-            if res.get("mode") == "surrogate" and sm:
-                how = (f"ML surrogate scored {sm.get('n_search', 0):,} forms in ms, then CFD-verified the "
+            if res.get("mode") in ("surrogate", "general") and sm:
+                which = "general ML surrogate (any drone)" if res.get("mode") == "general" else "ML surrogate"
+                how = (f"{which} scored {sm.get('n_search', 0):,} treatments in ms, then CFD-verified the "
                        f"top {sm.get('top_k_verified', 0)} ({res.get('n_cfd', 0)} CFD runs total)")
             else:
                 how = f"CFD-evaluated {res.get('n_cfd', 0)} forms directly"

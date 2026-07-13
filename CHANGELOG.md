@@ -4,6 +4,86 @@ All notable decisions and milestones for **OptimAero**. Honest numbers only.
 
 ## [Unreleased]
 
+### 2026-07-13 — BREAKTHROUGH: universal drag surrogate (works on ANY shape, drones to planes)
+- **Sky's reframing cracked it.** The whole "no surrogate beats blind on one drone" wall was a
+  data-diversity failure, not a modeling one: training on ONE archetype (parametric multirotors) overfits
+  (rank capped ~0.75). Contrast: the diverse envelope surrogate hit Cd R²≈0.80, and the GNN did WORST (0.54)
+  because regular drones give structure nothing to learn.
+- **Validated cross-type transfer:** a geometry-aware model transfers across shape TYPES where flat
+  descriptors fail (bodies→drones 0.24 vs −0.10). Diversity + rich features is the lever, not the model.
+- **Built the universal drag surrogate** (`optimaero/universal/`): `features.universal_features` (any mesh →
+  21 geometric features: area-rule shape distribution + normal-based streamlining = form drag + principal
+  moments) and `surrogate.UniversalDragSurrogate` (features → Cd + confidence). Trained on a diverse
+  **720-shape / 7-type** CFD dataset (bodies, drones, fuselages, wings, bluff bodies, nacelles, planes).
+- **Results:** overall held-out rank **0.970**, confidence-gated 0.98; per-type 0.62–0.92 (all types with
+  real drag variation). Rich features were decisive (drones 0.35→0.91); the normal-based streamlining
+  feature and pitching the narrow-Cd types (plane −0.06→0.62) closed the rest.
+- **Decisive validation:** `predict_drag()` on Sky's real lengthened drone (NOT in training) returns
+  **86.2 N from geometry alone, no CFD** — vs CFD's 82.6 N, a **4% error.** The "works on everything" engine
+  predicts a real drone's drag instantly. Next: wire it as the optimizer's drag engine for any shape.
+- **Correction (pre-commit review):** the earlier general-DRONE surrogate (2026-07-09/10 entries) was found to
+  have a broken serve path — after the HD/bare-feature changes, `optimize_drone_general` no longer matches the
+  deployed model's features, so `predict` KeyErrors and the optimizer silently falls back to blind CFD (safe,
+  never wrong, but the ML ranking never runs; the "55%/mode=general" claim only held for the earlier 3-knob
+  build). Since that surrogate was already shown NOT to beat blind, it's parked and **blind CFD is the shipped
+  drone optimizer** (−71% verified). Its `bare_cd`/`bare_cda` features also violated the spec's "no bare-CFD at
+  serve" contract (leakage: `bare_cda` is the target denominator) — another reason it's parked, not shipped.
+
+### 2026-07-10 — Diagnosed the surrogate ceiling: it's generalization, NOT CFD noise or the model
+- **The decisive test.** Blind vs surrogate head-to-head in the 6-knob space (same 14-CFD budget, Sky's
+  drone): surrogate 33.2 N vs blind 33.7 N — a **tie** within noise. The high-D advantage did not
+  materialize. So we diagnosed *why*, by elimination:
+  - **Model?** No — 15-model bakeoff, all ~0.75 rank-corr.
+  - **CFD mesh noise?** Hypothesized yes; tested and **NO**. Mesh-convergence study: refine 4 → refine 5
+    shifts drag +7% (bare) to +22% (faired) and is **form-dependent** — looked like the culprit. But
+    refine 5 is converged (refine 5 → refine 6 = 1%), and critically the **refine-4-vs-refine-5 drag-RANK
+    correlation is 0.965** — the error is a near-systematic underestimate that preserves ordering. So the
+    labels the surrogate trains on are already rank-clean; a refine-5 re-sweep (~13 h) would NOT help.
+    **The diagnostic saved that compute.** (Bonus: justifies staying on fast refine-4 CFD.)
+  - **Dimensionality?** No — 6-D tied, didn't separate.
+  - **Cross-drone generalization?** **YES** — the real ceiling. The 0.72 held-out rank is the intrinsic
+    difficulty of predicting how a NEW drone responds to fairings from its geometry; not noise, not model.
+- **Pushing generalization (Sky's choice):** scaled the 6-knob multi-drone sweep 50 → 130 drones (fast
+  refine 4, resumable) to give the surrogate more of the drone design space. Blind CFD (71%, any drone)
+  remains the shipped general optimizer meanwhile.
+
+### 2026-07-10 — Option 2: high-dimensional treatment space (where the ML search beats blind)
+- **Wide model bakeoff (Sky's ask, "find an ML that works").** 15 models scored GroupKFold-by-drone on the
+  48-drone data. Verdict: **the model is NOT the bottleneck** — Ridge, RF, ExtraTrees, GBM, GP all land at
+  **~0.75 within-drone rank-corr** (even a linear Ridge with R²=0.04 ranks as well as the best ensemble).
+  The 0.75 ceiling is data/features/CFD-noise, carried mostly by `tail_len`; secondary knobs drown in ±10%
+  mesh noise. Swapping the ML won't help — features + more/denser data will.
+- **Expanded the treatment space 3→6 knobs** (`airfoil.add_nose`, `optimize._build_hd`): boat-tail
+  (length, base-scale) + arm airfoil (chord, thickness) + **nose fairing** (length, base-scale). CFD: the
+  nose fairing alone cuts a further ~14% (40.5→34.7 N on the lengthened drone). Rationale (Sky): in a 6-D
+  space a dozen blind CFD samples cover almost nothing, so a surrogate that scores thousands should win —
+  the regime where "the ML runs through more designs" actually pays off.
+- **Infra:** `dataset.generate_multi(hd=True)` (knob-space-agnostic, 6-knob), general surrogate now
+  knob-adaptive and conditioned on the drone's **measured bluffness** (`bare_cd`, `bare_cda` from 1 bare
+  CFD) — 30 features total. A 50-drone × 26-treatment 6-knob sweep (~1350 CFD, resumable) is running; next:
+  train the HD surrogate + the decisive blind-vs-surrogate comparison in 6-D.
+
+### 2026-07-09 — GENERAL drone surrogate (optimize ANY multirotor, not one)
+- **Sky:** "the tool doesn't optimize drones, it optimizes MY drone." Audit confirmed only the surrogate was
+  drone-specific (optimizer/segmentation/fairing-builder already generalize; blind CFD optimizes any drone).
+- **Built the general-surrogate pipeline:** `generator.py` (parametric multirotor synthesizer — random
+  3/4/6/8-arm watertight drones + geometric `drone_descriptors`, 22 CFD-free shape features);
+  `dataset.generate_multi` (multi-drone × treatment CFD, grouped/resumable); `general_surrogate.py`
+  (features = descriptors + knobs, target = **normalized reduction ratio** treated_cda/bare_cda so it
+  transfers across drone sizes, evaluated **GroupKFold BY DRONE** = honest held-out-drone accuracy);
+  `optimize_drone_general` (compute the imported drone's descriptors → rank thousands of treatments →
+  CFD-verify top-K); GUI prefers general → single-drone → blind.
+- **v1 (22 drones): it generalizes but is rougher than blind.** On the lengthened drone (NOT in training)
+  it hit **55% (37 N)** via the surrogate vs blind's **71% (24 N)**. Held-out-drone R²≈0.33 (rank-corr 0.75).
+- **Adversarial review (24 agents) + fixes:** (1) a `GeneralDroneSurrogate` pickled under `__main__` via
+  `python -m` wouldn't load → silent blind fallback; retrained via import + hardened the `-m` entry points.
+  (2) The `arm_r` descriptor measured the whole-drone silhouette (2× too big, near-noise) — fixed
+  `_arm_thickness` to take the smallest section loop (now corr 0.66, median ratio 1.0; also corrects airfoil
+  sizing). (3) The held-out R² was selection-optimistic ("best of N on one split") but labeled "honest" —
+  relabeled with the per-model spread caveat.
+- **Scaling up (Sky's choice):** a fresh 50-drone × 13-treatment sweep is running to make the general
+  surrogate competitive with blind. Blind CFD remains the correct general path meanwhile.
+
 ### 2026-07-09 — Airfoils sized to the ARM (were absurdly oversized); lengthened+props result
 - **Airfoils were built comically oversized** (Sky: "why is the airfoil so long — it's thickening the
   arms"). Measured: chord 220 mm on a 190 mm drone, fineness 24:1, thickness driven by the motor-pod
