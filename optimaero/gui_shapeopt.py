@@ -88,6 +88,12 @@ class ShapeOptGUI:
         self.aggr.trace_add("write",
                             lambda *a: self.aggr_lbl.config(text=f"{self.aggr.get():.2f}")); r += 1
 
+        ttk.Label(form, text="CFD verify").grid(row=r, column=0, sticky="w")
+        self.verifyk = tk.StringVar(value="5")
+        ttk.Combobox(form, textvariable=self.verifyk, values=["3", "5", "10", "15"], width=5,
+                     state="readonly").grid(row=r, column=1, sticky="w")
+        ttk.Label(form, text="contenders (any-shape)").grid(row=r, column=2, sticky="w"); r += 1
+
         self.run_btn = ttk.Button(form, text="Optimize", command=self.on_run, state="disabled")
         self.run_btn.grid(row=r, column=0, columnspan=3, sticky="ew", pady=(12, 4)); r += 1
         self.save_btn = ttk.Button(form, text="Save optimized shape…", command=self.on_save,
@@ -204,7 +210,11 @@ class ShapeOptGUI:
             busy = "Building ducted drone shell…" if strat == "ducted" else "Optimizing your shape…"
             self.status.config(text=busy + " (~30–90 s)")
             self.prog.config(mode="indeterminate"); self.prog.start(12)
-        threading.Thread(target=self._work, args=(strat, obj, V, alpha, keep, flow, aggr, arms, prop_r),
+        try:
+            vk = int(self.verifyk.get())
+        except Exception:
+            vk = 5
+        threading.Thread(target=self._work, args=(strat, obj, V, alpha, keep, flow, aggr, arms, prop_r, vk),
                          daemon=True).start()
 
     @staticmethod
@@ -218,7 +228,7 @@ class ShapeOptGUI:
         except Exception:
             return False
 
-    def _work(self, strat, obj, V, alpha, keep, flow, aggr, arms, prop_r):
+    def _work(self, strat, obj, V, alpha, keep, flow, aggr, arms, prop_r, verifyk=5):
         try:
             if strat == "universal":
                 from optimaero.universal.surrogate import available
@@ -231,6 +241,7 @@ class ShapeOptGUI:
                     raise RuntimeError("Universal optimize CFD-verifies the result in Docker. Start Docker "
                                        "Desktop and retry.")
                 r = optimize_universal(self.mesh, V, flow_axis=flow, alpha_deg=alpha, aggressiveness=aggr,
+                                       top_k=max(1, int(verifyk)),
                                        progress=lambda ph, i, n: self.q.put(("uprog", (ph, i, n))))
                 res = {"kind": "universal", "optimized": r.optimized, "mb": r.mb, "ma": r.ma, "ok": True,
                        "params": r.params, "improved": r.improved, "baseline_ok": r.baseline_ok,

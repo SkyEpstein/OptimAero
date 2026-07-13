@@ -25,9 +25,11 @@ All notable decisions and milestones for **OptimAero**. Honest numbers only.
   comes from the universal surrogate (≈5% on a real drone) instead of `body_aero` (which read 402 N vs CFD's
   82.6 N, ~5× off). (2) New **"Optimize any shape (universal ML)"** strategy (`optimize_universal`) — the
   surrogate scores ~1200 streamlining-deformation candidates in seconds, CFD-verifies a diverse top-K, returns
-  the lowest-drag one (never worse than the input). Validated: bluff cube **17.2 → 0.44 N (−97%)**; a drone
-  correctly returns unchanged (deformation ≠ fairings — the drone auto-mode handles fairings). One universal
-  ML drag engine now optimizes any imported shape.
+  the lowest-drag one (never worse than the input). Validated: bluff cube **17.2 → 0.44 N (−97%)** (and −94%
+  at Z flow — the deform now runs in the +x flow frame and maps back); a drone correctly returns unchanged
+  (deformation ≠ fairings — the drone auto-mode handles fairings). One universal ML drag engine now optimizes
+  any imported shape. A GUI **"CFD verify"** control (3/5/10/15) sets how many surrogate-ranked contenders get
+  CFD-verified — trade compute for confidence, cheap because the surrogate pre-screens ~1200 for free.
 - **Correction (pre-commit review):** the earlier general-DRONE surrogate (2026-07-09/10 entries) was found to
   have a broken serve path — after the HD/bare-feature changes, `optimize_drone_general` no longer matches the
   deployed model's features, so `predict` KeyErrors and the optimizer silently falls back to blind CFD (safe,
