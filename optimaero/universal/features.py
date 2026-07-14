@@ -14,8 +14,10 @@ import trimesh
 
 FEATURE_NAMES = [
     "fineness", "A_front", "A_wet", "vol", "Dmax", "wet_front", "prismatic", "x_maxarea",
-    "base_area", "nose_area", "area_smooth", "max_xsec", "area_q1", "area_q2", "area_q3",
+    "nose_area", "base_area", "area_smooth", "max_xsec", "area_q1", "area_q2", "area_q3",
     "moment0", "moment1", "moment2", "front_frac", "back_frac", "mean_abs_nx",
+    # v2 (2026-07-14): separate low- from mid-drag WITHIN a type — pressure-drag drivers the 21 missed.
+    "aft_taper", "max_slope", "tc_ratio", "transverse_aspect", "fore_aft",
 ]
 _AXIS = {"x": 0, "y": 1, "z": 2}
 
@@ -31,12 +33,24 @@ def _core(A_front, A_wet, vol, fineness, Dmax, points, normals):
     a = np.asarray(radii) ** 2; amax = float(a.max() + 1e-9)              # cross-section-area proxy / station
     ev = np.sort(np.linalg.eigvalsh(np.cov(P.T)))[::-1]; ev = ev / (ev.sum() + 1e-9)   # elongation moments
     nx = np.asarray(normals, float)[:, 0]
+    # v2 pressure-drag drivers: aft closure (base drag), sharpest area change (separation), thickness/chord
+    # (thin-wing isolation), transverse flatness (wing vs body), streamwise area centroid (fore/aft loading).
+    ext = P.max(0) - P.min(0); thick = float(min(ext[1], ext[2])); width = float(max(ext[1], ext[2]))
+    da = np.abs(np.diff(a)) / amax
+    centers = (np.arange(nb) + 0.5) / nb
+    aft_taper = float((a[nb // 2] - a[-1]) / amax)                        # area shed mid→base (boat-tail)
+    max_slope = float(np.percentile(da, 90))                             # steep shoulder (adverse gradient),
+    #                                                                      90th pct not max → sampling-robust
+    tc_ratio = thick / L                                                 # thickness-to-chord
+    transverse_aspect = width / (thick + 1e-9)                           # flat wing (high) vs body of revolution
+    fore_aft = float((a * centers).sum() / (a.sum() + 1e-9))             # 0 = nose-loaded, 1 = tail-loaded
     feat = [fineness, A_front, A_wet, vol, Dmax, A_wet / (A_front + 1e-9), vol / (amax * L),
             float(np.argmax(a) / nb), a[0] / amax, a[-1] / amax,
             float(np.mean(np.abs(np.diff(a))) / amax), amax,
             a[nb // 4] / amax, a[nb // 2] / amax, a[3 * nb // 4] / amax,
             float(ev[0]), float(ev[1]), float(ev[2]),
-            float((nx > 0.5).mean()), float((nx < -0.5).mean()), float(np.abs(nx).mean())]
+            float((nx > 0.5).mean()), float((nx < -0.5).mean()), float(np.abs(nx).mean()),
+            aft_taper, max_slope, tc_ratio, transverse_aspect, fore_aft]
     return np.asarray(feat, dtype=float)
 
 

@@ -83,7 +83,11 @@ def train_and_save(root: str = "data/processed") -> "UniversalDragSurrogate":
         raise ValueError(f"universal surrogate needs >=10 labeled shapes, found {len(X)} in {root}/xtype_*")
     y = np.log(cd)
     folds = list(KFold(min(5, len(X)), shuffle=True, random_state=0).split(X))
-    mk = lambda: GradientBoostingRegressor(n_estimators=500, max_depth=3, subsample=0.8, random_state=0)
+    # capacity tuned by recorded bake-off (spec 2026-07-14-diverse-data-expansion): on the enlarged
+    # 837-shape set, depth-3/500 under-fit the broader distribution (wing held-out 0.66, nacelle 0.68);
+    # (1200, depth 4, lr 0.03) recovers them (wing 0.78, nacelle 0.79) at equal overall rank.
+    mk = lambda: GradientBoostingRegressor(n_estimators=1200, max_depth=4, learning_rate=0.03,
+                                           subsample=0.8, random_state=0)
     oof = _oof(mk, X, y, folds)
     resid = np.abs(oof - y)
     cmk = lambda: GradientBoostingRegressor(n_estimators=200, max_depth=3, random_state=0)

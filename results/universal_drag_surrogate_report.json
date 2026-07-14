@@ -1,5 +1,5 @@
 {
-  "n": 720,
+  "n": 837,
   "n_types": 7,
   "features": [
     "fineness",
@@ -22,42 +22,47 @@
     "moment2",
     "front_frac",
     "back_frac",
-    "mean_abs_nx"
+    "mean_abs_nx",
+    "aft_taper",
+    "max_slope",
+    "tc_ratio",
+    "transverse_aspect",
+    "fore_aft"
   ],
-  "overall_rank": 0.9697780409813033,
+  "overall_rank": 0.9760370581429695,
   "confidence_gated": {
-    "rank@100%": 0.9697780409813033,
-    "rank@50%": 0.9788645488519716,
-    "rank@25%": 0.9536549481979897
+    "rank@100%": 0.9760370581429695,
+    "rank@50%": 0.9841480323181132,
+    "rank@25%": 0.9835085966664914
   },
   "per_type": {
     "bluff": {
-      "n": 95,
-      "rank": 0.8835946248600224
+      "n": 139,
+      "rank": 0.9372938915947986
     },
     "bodies": {
-      "n": 152,
-      "rank": 0.9027809102030494
+      "n": 182,
+      "rank": 0.9527794006554988
     },
     "drones": {
       "n": 117,
-      "rank": 0.9215483522906083
+      "rank": 0.902411245485471
     },
     "fuselage": {
       "n": 93,
-      "rank": 0.7572140491181999
+      "rank": 0.8234758735937452
     },
     "nacelle": {
       "n": 94,
-      "rank": 0.7899505111440233
+      "rank": 0.787335187660297
     },
     "plane": {
       "n": 83,
-      "rank": 0.6201250997019436
+      "rank": 0.7587632761009193
     },
     "wing": {
-      "n": 86,
-      "rank": 0.6259634888438134
+      "n": 129,
+      "rank": 0.7807300983899822
     }
   },
   "eval": "held-out (KFold-5) rank of predicted vs CFD Cd; confidence = GBR on |log-resid|"

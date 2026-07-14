@@ -1,0 +1,124 @@
+{
+  "n_built": 9,
+  "n_usable": 8,
+  "V": 134.11,
+  "regime": "steady RANS, refine 4, layers 2",
+  "model": "SHIPPED: 26-feature GBR(1200,d4,lr0.03) @ 837 shapes; benchmark = leave-instances-out (exact 9 tuples excluded from training)",
+  "cross_shape_rank_spearman": 0.6904761904761906,
+  "median_abs_pct_err_Cd": 14.315155974912608,
+  "mean_abs_pct_err_Cd": 13.836988129766926,
+  "mean_signed_pct_err_Cd": 6.09440048780328,
+  "conf_err_best_half": 0.0944271894604895,
+  "conf_err_worst_half": 0.09462992601751945,
+  "conf_flags_worst": true,
+  "baseline_before_fix": {
+    "cross_shape_rank_spearman": 0.5714285714285715,
+    "median_abs_pct_err_Cd": 34.13564970763582,
+    "mean_abs_pct_err_Cd": 38.535675713715484,
+    "conf_err_best_half": 0.2886265077153298,
+    "conf_err_worst_half": 0.09337450338446257,
+    "conf_flags_worst": false,
+    "model": "21-feature GBR(500,d3) @ 720 shapes (original)"
+  },
+  "rows": [
+    {
+      "name": "sphere",
+      "cd_lit": 0.47,
+      "note": "subcritical sphere; steady RANS poor for separated wake",
+      "cfd_Cd": 0.35419319,
+      "cfd_drag": 30.60592344014867,
+      "pred_Cd": 0.4446351609325581,
+      "conf_err": 0.1015388891815527,
+      "pct_err_Cd": 25.53464422411908,
+      "usable": true
+    },
+    {
+      "name": "cylinder",
+      "cd_lit": 1.1,
+      "note": "crossflow cylinder; unsteady wake, RANS approximate",
+      "cfd_Cd": 0.70681073,
+      "cfd_drag": 56.06137873827737,
+      "pred_Cd": 0.7292741756958637,
+      "conf_err": 0.11124481117880956,
+      "pct_err_Cd": 3.1781415791273666,
+      "usable": true
+    },
+    {
+      "name": "cube",
+      "cd_lit": 1.05,
+      "note": "sharp-edged bluff reference",
+      "cfd_Cd": 0.77940905,
+      "cfd_drag": 54.95075595470194,
+      "pred_Cd": 0.9405461727385437,
+      "conf_err": 0.035476027337173484,
+      "pct_err_Cd": 20.674268888530822,
+      "usable": true
+    },
+    {
+      "name": "ahmed_25deg",
+      "cd_lit": 0.29,
+      "note": "Ahmed body 25deg slant, no legs (frontal-area Cd)",
+      "cfd_Cd": 0.51228379,
+      "cfd_drag": 6.3223852217132865,
+      "pred_Cd": 0.4270013349243192,
+      "conf_err": 0.1898397520787101,
+      "pct_err_Cd": -16.64750217368401,
+      "usable": true
+    },
+    {
+      "name": "streamlined_body",
+      "cd_lit": null,
+      "note": "low-drag rounded slender body",
+      "cfd_Cd": 0.31782314,
+      "cfd_drag": 3.548913251144106,
+      "pred_Cd": 0.32490097997593304,
+      "conf_err": 0.013659015132764853,
+      "pct_err_Cd": 2.22697440341601,
+      "usable": true
+    },
+    {
+      "name": "naca0012_wing",
+      "cd_lit": null,
+      "note": "symmetric wing, alpha=0",
+      "cfd_Cd": 0.36198503,
+      "cfd_drag": 4.594972668033642,
+      "pred_Cd": 0.4119536673182927,
+      "conf_err": 0.1139876955183478,
+      "pct_err_Cd": 13.804061819432894,
+      "usable": true
+    },
+    {
+      "name": "naca2412_wing",
+      "cd_lit": null,
+      "note": "cambered wing, alpha=0",
+      "cfd_Cd": 0.37287291,
+      "cfd_drag": 4.794422342783137,
+      "pred_Cd": 0.42622156570715897,
+      "conf_err": 0.13881723601203577,
+      "pct_err_Cd": 14.30746355565465,
+      "usable": true
+    },
+    {
+      "name": "naca4412_wing",
+      "cd_lit": null,
+      "note": "high-camber wing, alpha=0",
+      "cfd_Cd": null,
+      "cfd_drag": null,
+      "pred_Cd": 0.4061362597634164,
+      "conf_err": 0.07346541569150247,
+      "pct_err_Cd": null,
+      "usable": false
+    },
+    {
+      "name": "onera_m6_wing",
+      "cd_lit": null,
+      "note": "swept tapered wing, symmetric section",
+      "cfd_Cd": 0.40395802,
+      "cfd_drag": 3.358050486589721,
+      "pred_Cd": 0.34609972521930676,
+      "conf_err": 0.05166503547264152,
+      "pct_err_Cd": -14.322848394170565,
+      "usable": true
+    }
+  ]
+}

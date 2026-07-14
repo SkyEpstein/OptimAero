@@ -4,6 +4,45 @@ All notable decisions and milestones for **OptimAero**. Honest numbers only.
 
 ## [Unreleased]
 
+### 2026-07-14 — Benchmark validation → diverse-data expansion breaks the wing ceiling
+- **Honest OOD validation** (`universal/benchmarks.py`, spec 2026-07-13-real-model-validation): tested the
+  surrogate on 9 canonical textbook shapes it never trained on (sphere, cylinder, cube, Ahmed, streamlined
+  body, NACA 0012/2412/4412, ONERA M6), CFD-labeled with the training pipeline. The 0.97 headline is
+  **cross-TYPE**; on canonical instances the surrogate **over-predicted Cd by +37% mean** and ranked them at
+  only **Spearman 0.57**, and its confidence model failed to flag the misses. (Verifier caveat: coarse RANS
+  under-predicts bluff drag, so ~half the sphere/cube gap is the ground truth; the streamlined shapes, where
+  RANS is trustworthy, showed a clean +27–39% wing over-prediction.)
+- **Diagnosis:** not a floor (model predicts down to Cd 0.15; data has it) and not extrapolation (the shapes
+  look in-distribution) — the surrogate **regressed each canonical shape toward its type's training median**
+  (benchmark wings at CFD 0.36 predicted ≈0.47 = the training-wing median).
+- **Features probe** (spec 2026-07-14-surrogate-features-v2): added 5 pressure-drag features (aft_taper,
+  max_slope→90th-pct for sampling robustness, tc_ratio, transverse_aspect, fore_aft) to the shared feature
+  core. Result: a modest CALIBRATION win (median |%err| 34→27.5%) but the **wing rank did not move
+  (0.626→0.622)** → proved the ceiling is a **data-coverage gap, not representation**.
+- **Diverse-data expansion** (spec 2026-07-14-diverse-data-expansion): generated + CFD-labeled **117 new
+  canonical-family shapes** (43 wings, 30 streamlined bodies/ellipsoids, 44 bluff), reusing the benchmark
+  generators with parameter sweeps that **exclude the exact 9 benchmark tuples** (leakage guard → the
+  benchmark becomes a fair leave-instances-out test). Dataset **720 → 837 shapes**. A recorded capacity
+  bake-off then retuned the GBR from (500, depth 3) to **(1200, depth 4, lr 0.03)** — depth-3 under-fit the
+  broader set.
+- **Result (held-out KFold-5, the honest metric; "before" = v2 features @ 720 so the delta isolates the
+  data+capacity effect, features held constant):** **wing 0.61 → 0.78** (+0.17, the ceiling broke),
+  plane 0.70 → 0.76, bodies 0.89 → 0.95, bluff 0.91 → 0.94; overall 0.976. Non-target types held
+  (nacelle/fuselage recovered by the capacity bump); **drones 0.930 → 0.902** (−0.028, the one real cost,
+  still strong). Vs the previously-committed 21-feature model, wing went 0.626 → 0.781. Benchmark
+  (leave-instances-out, shipped model in `results/benchmark_validation.json`): systematic bias
+  **+37% → +6%**, median |%err| **34% → 14%**, cross-shape rank **0.57 → 0.69**. In-distribution confidence
+  now *helps* ranking (KFold rank@50% 0.984 in `_report.json`).
+  - **Honesty caveat:** the generation deliberately brackets each benchmark instance with near-neighbors
+    that stay in training (e.g. spheres r=0.045/0.055 around the r=0.05 benchmark), so this benchmark is now
+    an INTERPOLATION test — it shows the model *covers* these shape families, not extrapolation to novel
+    ones. The robust generalization result is the held-out KFold wing gain (0.61→0.78, genuine
+    leave-shapes-out CV). On the benchmark the confidence model barely separates good from bad predictions;
+    the real change is it stopped being *inverted* (worst-half conf-err 0.29→~0.09).
+- **Validates Sky's thesis**: the tool must work on everything (drones to planes) — diverse data + the
+  capacity to use it, not model cleverness, is what generalizes. (Training data + `.joblib` are gitignored;
+  the enlarged model is reproduced by regenerating the dataset and retraining.)
+
 ### 2026-07-13 — Drone auto-mode now pre-screened by the universal surrogate (beats blind)
 - The drone auto-mode was blind CFD (the drone-specific surrogates were parked — they only tied blind on
   the fine fairing-ranking task). Tested whether the UNIVERSAL surrogate (which reads the treated drone's
