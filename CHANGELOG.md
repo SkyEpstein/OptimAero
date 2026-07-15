@@ -4,6 +4,25 @@ All notable decisions and milestones for **OptimAero**. Honest numbers only.
 
 ## [Unreleased]
 
+### 2026-07-14 — Real third-party CAD validation (NASA SOFIA / Boeing 747SP)
+- Downloaded a real public-domain NASA SOFIA (Boeing 747SP) airframe (NASA-3D-Resources, 6 external STL
+  parts), boolean-unioned in-memory into one airframe, scaled to 0.15 m, flow +x. A genuinely
+  out-of-distribution third-party CAD model — the surrogate was frozen ~9 h BEFORE this mesh existed
+  (verifier-confirmed temporal no-leakage). Reproduction committed: `optimaero/universal/validate_sofia.py`.
+- **Prediction (geometry only, no CFD):** Cd **0.411** vs the pipeline's coarse-RANS CFD Cd **0.387** →
+  **+6.2%**. The model's own confidence implied ~25% typical Cd error, so ~6% on a real unseen aircraft is
+  well inside — a strong SINGLE-SAMPLE result (n=1), not proof of general accuracy. (A differently
+  tessellated instance landed at −0.8%; the prediction varies ~5% with mesh tessellation via the 512-pt
+  surface sampling — honest robustness caveat.)
+- **Optimization (universal streamlining, CFD-verified, never-worse):** reshaped the airframe
+  (elongate +29%, boat-tail the aft) → CFD drag **3.130 → 2.224 N (−28.9%)**. Before/after are the same
+  coarse-RANS setup, so the relative reduction is solid; a pure aero-shape result (a longer aircraft, not a
+  free lunch).
+- **Honesty:** the CFD is this project's own coarse steady RANS (±30–50% stated); a frontal-area RANS
+  Cd≈0.4 at 0.15 m / 134 m/s is NOT a real 747 cruise Cd (~0.03, wing-area, compressible) — this is "the
+  model matched what our RANS says for this shape," not real-world drag. Real gotcha found: STL export drops
+  watertightness (no connectivity), so the deformation optimizer needs the in-memory union.
+
 ### 2026-07-14 — Benchmark validation → diverse-data expansion breaks the wing ceiling
 - **Honest OOD validation** (`universal/benchmarks.py`, spec 2026-07-13-real-model-validation): tested the
   surrogate on 9 canonical textbook shapes it never trained on (sphere, cylinder, cube, Ahmed, streamlined
